@@ -1,0 +1,185 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                        String    @db.VarChar(255)
+  email                       String    @unique @db.VarChar(255)
+  password_hash               String    @db.VarChar(255)
+  phone_number                String    @db.VarChar(50)
+  role                        String    @default("user") @db.VarChar(50)
+  status                      String    @default("pending") @db.VarChar(50)
+  status_reason               String?   @db.Text
+  host_expiry_date            DateTime?
+  email_verified              Boolean   @default(false)
+  email_verification_token    String?   @db.VarChar(255)
+  email_verification_expires  DateTime?
+  reset_password_token        String?   @db.VarChar(255)
+  reset_password_expires      DateTime?
+  last_active                 DateTime  @default(now()) @db.Timestamp
+  created_at                  DateTime  @default(now()) @db.Timestamp
+  updated_at                  DateTime  @default(now()) @updatedAt @db.Timestamp
+  host_details                Json      @default("{\"rating\": 0, \"totalListings\": 0, \"verified\": false, \"notificationSent\": {\"oneWeek\": false, \"twoDays\": false}}") @db.JsonB
+  user_details                Json      @default("{\"preferences\": {}, \"bookings\": []}") @db.JsonB
+  id_images                   String[]  @default([])
+  
+  sessions          UserSession[]
+  events            UserEvent[]
+  listings          Listing[]
+  bookings          Booking[]
+  blocked_users     HostBlockedUser[]     @relation("host_blocked")
+  blocked_by        HostBlockedUser[]     @relation("user_blocked")
+  payment_methods   HostPaymentMethod[]
+
+  @@index([email])
+  @@index([role])
+  @@index([status])
+  @@index([email_verified])
+}
+
+model UserSession {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String    @db.Uuid
+  device        String?   @db.VarChar(255)
+  browser       String?   @db.VarChar(255)
+  os            String?   @db.VarChar(255)
+  ip_address    String?   @db.Text
+  user_agent    String?   @db.Text
+  logged_in_at  DateTime  @default(now()) @db.Timestamp
+  logged_out_at DateTime? @db.Timestamp
+  is_active     Boolean   @default(true)
+  
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+}
+
+model UserEvent {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String   @db.Uuid
+  event_type  String?  @db.Text
+  metadata    Json?    @db.JsonB
+  created_at  DateTime @default(now()) @db.Timestamp
+  
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+}
+
+model Listing {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title               String   @db.VarChar(255)
+  description         String   @db.Text
+  price               Decimal  @db.Decimal(10, 2)
+  location            String   @db.VarChar(255)
+  latitude            Decimal? @db.Decimal(10, 8)
+  longitude           Decimal? @db.Decimal(11, 8)
+  images              String[] @default([])
+  category            String   @default("city") @db.VarChar(50)
+  amenities           String[] @default([])
+  host_id             String   @db.Uuid
+  rules               String[] @default([])
+  cancellation_policy String   @default("flexible") @db.Text
+  status              String   @default("active") @db.VarChar(20)
+  is_active           Boolean  @default(true)
+  blocked_dates       Json     @default("[]") @db.JsonB
+  view_count          Int      @default(0)
+  created_at          DateTime @default(now()) @db.Timestamp
+  updated_at          DateTime @default(now()) @updatedAt @db.Timestamp
+  
+  host     User     @relation(fields: [host_id], references: [id], onDelete: Cascade)
+  bookings Booking[]
+
+  @@index([host_id])
+  @@index([status])
+  @@index([category])
+}
+
+model Booking {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  listing_id      String   @db.Uuid
+  user_id         String   @db.Uuid
+  check_in        DateTime @db.Timestamp
+  check_out       DateTime @db.Timestamp
+  total_price     Decimal  @db.Decimal(10, 2)
+  guests          Int      @default(1)
+  checked_in_at   DateTime? @db.Timestamp
+  checked_out_at  DateTime? @db.Timestamp
+  no_show         Boolean  @default(false)
+  status          String   @default("pending") @db.VarChar(20)
+  created_at      DateTime @default(now()) @db.Timestamp
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamp
+  
+  listing Listing @relation(fields: [listing_id], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  blocked_entries HostBlockedUser[]
+  payments        BookingPayment[]
+
+  @@index([user_id])
+  @@index([listing_id, check_in, check_out])
+  @@index([check_in, check_out])
+  @@index([status])
+}
+
+model HostBlockedUser {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  host_id    String   @db.Uuid
+  user_id    String   @db.Uuid
+  reason     String   @db.VarChar(50)
+  booking_id String?  @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamp
+  
+  host    User     @relation("host_blocked", fields: [host_id], references: [id], onDelete: Cascade)
+  user    User     @relation("user_blocked", fields: [user_id], references: [id], onDelete: Cascade)
+  booking Booking? @relation(fields: [booking_id], references: [id])
+
+  @@unique([host_id, user_id])
+}
+
+model HostPaymentMethod {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  host_id            String   @db.Uuid
+  type               String   @db.VarChar(20)
+  sadad_number       String?  @db.VarChar(50)
+  sadad_account_name String?  @db.VarChar(255)
+  instructions       String?  @db.Text
+  is_active          Boolean  @default(true)
+  created_at         DateTime @default(now()) @db.Timestamp
+  updated_at         DateTime @default(now()) @updatedAt @db.Timestamp
+  
+  host User @relation(fields: [host_id], references: [id], onDelete: Cascade)
+  
+  payments BookingPayment[]
+
+  @@index([host_id])
+  @@index([host_id, is_active])
+}
+
+model BookingPayment {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  booking_id           String   @db.Uuid
+  payment_method_id    String?  @db.Uuid
+  type                 String   @db.VarChar(20)
+  amount               Decimal  @db.Decimal(10, 2)
+  status               String   @default("pending") @db.VarChar(20)
+  sadad_reference      String?  @db.VarChar(100)
+  sadad_transaction_id String?  @db.VarChar(255)
+  paid_at              DateTime? @db.Timestamp
+  notes                String?  @db.Text
+  created_at           DateTime @default(now()) @db.Timestamp
+  updated_at           DateTime @default(now()) @updatedAt @db.Timestamp
+  
+  booking       Booking            @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+  payment_method HostPaymentMethod? @relation(fields: [payment_method_id], references: [id])
+
+  @@index([booking_id])
+  @@index([status])
+  @@index([sadad_reference])
+}
