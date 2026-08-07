@@ -7,11 +7,10 @@ const { generalLimiter, apiLimiter } = require('./middleware/rateLimiter');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 
 // Import routes
-const authRoutes = require('./routes/auth.routes');
-const userRoutes = require('./routes/user.routes');
-const listingRoutes = require('./routes/listing.routes');
-const bookingRoutes = require('./routes/booking.routes');
-const paymentRoutes = require('./routes/payment.routes');
+const authRoutes = require('./routes/authRoutes');
+const listingRoutes = require('./routes/listingRoutes');
+const bookingRoutes = require('./routes/bookingRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
 
 const app = express();
 
@@ -56,7 +55,6 @@ app.get('/health', (req, res) => {
 
 // API routes
 app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/listings', listingRoutes);
 app.use('/api/v1/bookings', bookingRoutes);
 app.use('/api/v1/payments', paymentRoutes);
@@ -69,7 +67,6 @@ app.get('/', (req, res) => {
     status: 'operational',
     endpoints: {
       auth: '/api/v1/auth',
-      users: '/api/v1/users',
       listings: '/api/v1/listings',
       bookings: '/api/v1/bookings',
       payments: '/api/v1/payments',
