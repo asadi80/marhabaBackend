@@ -4,7 +4,7 @@
   "description": "Marhaba MVP Backend API",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "nodemon src/server.js",
     "dev": "nodemon server.js",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
