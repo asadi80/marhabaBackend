@@ -6,7 +6,7 @@ const { authLimiter } = require('../middleware/rateLimiter');
 const { userValidators, handleValidationErrors } = require('../middleware/validation');
 
 // Public routes with rate limiting
-router.post('/register', authLimiter, userValidators.register, handleValidationErrors, authController.register);
+router.post('/register',  userValidators.register, handleValidationErrors, authController.register);
 router.post('/login', authLimiter, userValidators.login, handleValidationErrors, authController.login);
 router.post('/refresh', authLimiter, authController.refreshToken);
 router.get('/verify-email/:token', authController.verifyEmail);
