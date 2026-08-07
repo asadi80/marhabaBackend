@@ -13,6 +13,9 @@ const bookingRoutes = require('./routes/bookingRoutes');
 
 const app = express();
 
+// This tells Express to trust the X-Forwarded-* headers
+app.set('trust proxy', 1); // Trust first proxy
+
 // Security middleware
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
