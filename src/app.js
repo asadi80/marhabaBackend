@@ -18,7 +18,7 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// ✅ FIXED CORS Configuration
+// ✅ FIXED: CORS Configuration - Remove the problematic app.options('*')
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -41,17 +41,17 @@ const corsOptions = {
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true, // Allow credentials (cookies, authorization headers)
+  credentials: true,
   optionsSuccessStatus: 200,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
 };
 
-// Apply CORS middleware
+// Apply CORS middleware - this handles preflight requests automatically
 app.use(cors(corsOptions));
 
-// Handle preflight requests explicitly
-app.options('*', cors(corsOptions));
+// ❌ REMOVE THIS LINE - it's causing the error:
+// app.options('*', cors(corsOptions));
 
 // Compression
 app.use(compression());
