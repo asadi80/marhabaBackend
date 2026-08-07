@@ -16,11 +16,13 @@ const paymentRoutes = require('./routes/payment.routes');
 const app = express();
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
 app.use(cors({
   origin: process.env.FRONTEND_URL || '*',
   credentials: true,
-  optionsSuccessStatus: 200,
 }));
 
 // Compression
@@ -41,13 +43,14 @@ if (process.env.NODE_ENV === 'development') {
 app.use(generalLimiter);
 app.use('/api', apiLimiter);
 
-// Health check
+// Health check (important for Render)
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    environment: process.env.NODE_ENV,
+    environment: process.env.NODE_ENV || 'development',
+    port: process.env.PORT || 5000,
   });
 });
 
@@ -61,7 +64,7 @@ app.use('/api/v1/payments', paymentRoutes);
 // Root route
 app.get('/', (req, res) => {
   res.status(200).json({
-    name: 'MVP App API',
+    name: 'Marhaba MVP Backend API',
     version: '1.0.0',
     status: 'operational',
     endpoints: {
@@ -70,6 +73,7 @@ app.get('/', (req, res) => {
       listings: '/api/v1/listings',
       bookings: '/api/v1/bookings',
       payments: '/api/v1/payments',
+      health: '/health',
     },
   });
 });
