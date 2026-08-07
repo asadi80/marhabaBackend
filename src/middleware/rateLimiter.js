@@ -1,10 +1,10 @@
 const rateLimit = require('express-rate-limit');
 const { redis } = require('../config/redis');
 
-// Import RedisStore
-const RedisStore = require('rate-limit-redis');
+// Import RedisStore correctly for version 6.x
+const { RedisStore } = require('rate-limit-redis');
 
-// General rate limiter (no Redis)
+// General rate limiter
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100,
@@ -33,7 +33,6 @@ const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 60,
   store: new RedisStore({
-    // For ioredis
     client: redis,
     prefix: 'rate-limit:',
   }),

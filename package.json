@@ -31,7 +31,6 @@
     "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.11.0",
-    "rate-limit-redis": "^6.0.1",
     "uuid": "^14.0.1"
   },
   "devDependencies": {
