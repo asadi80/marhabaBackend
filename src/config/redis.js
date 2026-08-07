@@ -1,51 +1,83 @@
 const Redis = require('ioredis');
 
-const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
-  retryStrategy: (times) => {
-    const delay = Math.min(times * 50, 2000);
-    return delay;
-  },
-  maxRetriesPerRequest: 3,
-});
+let redis;
+let redisConnected = false;
 
-redis.on('connect', () => {
-  console.log('✅ Redis Connected Successfully');
-});
+// Only connect if REDIS_URL is provided
+if (process.env.REDIS_URL) {
+  try {
+    redis = new Redis(process.env.REDIS_URL, {
+      retryStrategy: (times) => {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+      },
+      maxRetriesPerRequest: 3,
+    });
 
-redis.on('error', (error) => {
-  console.error('❌ Redis Connection Error:', error.message);
-});
+    redis.on('connect', () => {
+      redisConnected = true;
+      console.log('✅ Redis Connected Successfully');
+    });
 
-// Redis helper functions
+    redis.on('error', (error) => {
+      redisConnected = false;
+      console.error('❌ Redis Connection Error:', error.message);
+    });
+  } catch (error) {
+    console.error('❌ Redis initialization failed:', error.message);
+    redis = null;
+  }
+} else {
+  console.log('ℹ️ Redis URL not provided, running without Redis');
+  redis = null;
+}
+
+// Redis helpers with fallback
 const redisHelpers = {
-  // Set with expiry (default 1 hour)
   set: async (key, value, expiry = 3600) => {
-    return redis.set(key, JSON.stringify(value), 'EX', expiry);
-  },
-  
-  // Get with fallback
-  get: async (key) => {
-    const data = await redis.get(key);
-    return data ? JSON.parse(data) : null;
-  },
-  
-  // Delete
-  del: async (key) => redis.del(key),
-  
-  // Clear pattern
-  deletePattern: async (pattern) => {
-    const keys = await redis.keys(pattern);
-    if (keys.length > 0) {
-      return redis.del(keys);
+    if (!redis || !redisConnected) return null;
+    try {
+      return redis.set(key, JSON.stringify(value), 'EX', expiry);
+    } catch (error) {
+      console.error('❌ Redis set error:', error.message);
+      return null;
     }
-    return 0;
   },
   
-  // Increment view count
-  incrementView: async (key) => redis.incr(key),
+  get: async (key) => {
+    if (!redis || !redisConnected) return null;
+    try {
+      const data = await redis.get(key);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      console.error('❌ Redis get error:', error.message);
+      return null;
+    }
+  },
   
-  // Get TTL
-  ttl: async (key) => redis.ttl(key),
+  del: async (key) => {
+    if (!redis || !redisConnected) return null;
+    try {
+      return redis.del(key);
+    } catch (error) {
+      console.error('❌ Redis del error:', error.message);
+      return null;
+    }
+  },
+  
+  deletePattern: async (pattern) => {
+    if (!redis || !redisConnected) return 0;
+    try {
+      const keys = await redis.keys(pattern);
+      if (keys.length > 0) {
+        return redis.del(keys);
+      }
+      return 0;
+    } catch (error) {
+      console.error('❌ Redis deletePattern error:', error.message);
+      return 0;
+    }
+  },
 };
 
-module.exports = { redis, redisHelpers };
+module.exports = { redis, redisHelpers, redisConnected };
