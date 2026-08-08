@@ -8,7 +8,7 @@ datasource db {
 }
 
 model User {
-  id                          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                          String    @id @default(uuid()) @db.Uuid
   name                        String    @db.VarChar(255)
   email                       String    @unique @db.VarChar(255)
   password_hash               String    @db.VarChar(255)
@@ -44,7 +44,7 @@ model User {
 }
 
 model UserSession {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id            String    @id @default(uuid()) @db.Uuid
   user_id       String    @db.Uuid
   device        String?   @db.VarChar(255)
   browser       String?   @db.VarChar(255)
@@ -61,7 +61,7 @@ model UserSession {
 }
 
 model UserEvent {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
   user_id     String   @db.Uuid
   event_type  String?  @db.Text
   metadata    Json?    @db.JsonB
@@ -73,7 +73,7 @@ model UserEvent {
 }
 
 model Listing {
-  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                  String   @id @default(uuid()) @db.Uuid
   title               String   @db.VarChar(255)
   description         String   @db.Text
   price               Decimal  @db.Decimal(10, 2)
@@ -102,7 +102,7 @@ model Listing {
 }
 
 model Booking {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id              String   @id @default(uuid()) @db.Uuid
   listing_id      String   @db.Uuid
   user_id         String   @db.Uuid
   check_in        DateTime @db.Timestamp
@@ -129,7 +129,7 @@ model Booking {
 }
 
 model HostBlockedUser {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id         String   @id @default(uuid())) @db.Uuid
   host_id    String   @db.Uuid
   user_id    String   @db.Uuid
   reason     String   @db.VarChar(50)
@@ -144,7 +144,7 @@ model HostBlockedUser {
 }
 
 model HostPaymentMethod {
-  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                 String   @id @default(uuid()) @db.Uuid
   host_id            String   @db.Uuid
   type               String   @db.VarChar(20)
   sadad_number       String?  @db.VarChar(50)
@@ -163,7 +163,7 @@ model HostPaymentMethod {
 }
 
 model BookingPayment {
-  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                   String   @id @default(uuid()) @db.Uuid
   booking_id           String   @db.Uuid
   payment_method_id    String?  @db.Uuid
   type                 String   @db.VarChar(20)
