@@ -4,6 +4,11 @@ const path = require('path');
 // Load .env from root
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
+console.log('🔧 Environment variables loaded:');
+console.log('  EMAIL_HOST:', process.env.EMAIL_HOST || 'NOT SET');
+console.log('  EMAIL_USER:', process.env.EMAIL_USER || 'NOT SET');
+console.log('  EMAIL_PASS:', process.env.EMAIL_PASS ? 'SET' : 'NOT SET');
+
 console.log('📦 Loading application...');
 console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
 

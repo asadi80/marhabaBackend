@@ -1,5 +1,5 @@
 const nodemailer = require('nodemailer');
-
+console.log('🔧 EmailService file loaded');
 class EmailService {
   constructor() {
     // Use the same configuration that works in Next.js
