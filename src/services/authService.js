@@ -1,4 +1,3 @@
-//src/service/authService
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { prisma } = require("../config/database");
@@ -21,14 +20,16 @@ class AuthService {
 
   // Generate JWT tokens
   generateTokens(userId) {
-    const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRE || "30d",
-    });
+    const accessToken = jwt.sign(
+      { id: userId },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRE || "30d" }
+    );
 
     const refreshToken = jwt.sign(
       { id: userId },
       process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_REFRESH_EXPIRE || "7d" },
+      { expiresIn: process.env.JWT_REFRESH_EXPIRE || "7d" }
     );
 
     return { accessToken, refreshToken };
@@ -66,7 +67,7 @@ class AuthService {
         phone_number,
       });
       throw new Error(
-        "All fields are required: name, email, password, phone_number",
+        "All fields are required: name, email, password, phone_number"
       );
     }
 
@@ -119,23 +120,43 @@ class AuthService {
 
     console.log("✅ User created successfully:", user.id);
 
-    // Send verification email (non-blocking)
-    try {
-      console.log(`📧 Sending verification email to ${email}...`);
-      const emailResult = await emailService.sendVerificationEmail(
-        email,
-        name,
-        verificationToken,
-      );
+    // ─── Send verification email with retry ─────────────────────
+    let emailSent = false;
+    let emailError = null;
 
-      if (emailResult.success) {
-        console.log(`✅ Verification email sent: ${emailResult.messageId}`);
-      } else {
-        console.error(`❌ Email send failed: ${emailResult.error}`);
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        console.log(`📧 Sending verification email (attempt ${attempt}/3)...`);
+        const emailResult = await emailService.sendVerificationEmail(
+          email,
+          name,
+          verificationToken
+        );
+
+        if (emailResult.success) {
+          console.log(`✅ Verification email sent: ${emailResult.messageId}`);
+          emailSent = true;
+          break;
+        } else {
+          emailError = emailResult.error;
+          console.error(`❌ Attempt ${attempt} failed:`, emailResult.error);
+        }
+      } catch (error) {
+        emailError = error.message;
+        console.error(`❌ Attempt ${attempt} failed:`, error.message);
       }
-    } catch (error) {
-      // Log error but don't fail registration
-      console.error("❌ Failed to send verification email:", error.message);
+
+      // Wait before retry
+      if (attempt < 3) {
+        console.log(`⏳ Waiting 2 seconds before retry...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+
+    if (!emailSent) {
+      console.error(`❌ All email attempts failed: ${emailError}`);
+      // Don't throw - user can resend verification later
+      // But we log it for debugging
     }
 
     // Generate tokens
@@ -290,7 +311,7 @@ class AuthService {
           requiresIdUpload,
           isHostApproved,
         },
-        3600,
+        3600
       );
     } catch (error) {
       console.error("❌ Failed to cache user:", error.message);
@@ -308,6 +329,266 @@ class AuthService {
       },
       tokens,
     };
+  }
+
+  // Logout user
+  async logout(userId, sessionId = null) {
+    if (sessionId) {
+      await prisma.userSession.update({
+        where: { id: sessionId },
+        data: {
+          is_active: false,
+          logged_out_at: new Date(),
+        },
+      });
+    } else {
+      await prisma.userSession.updateMany({
+        where: {
+          user_id: userId,
+          is_active: true,
+        },
+        data: {
+          is_active: false,
+          logged_out_at: new Date(),
+        },
+      });
+    }
+
+    await redisHelpers.del(`user:${userId}`);
+  }
+
+  // Refresh token
+  async refreshToken(refreshToken) {
+    const decoded = this.verifyToken(refreshToken, true);
+    if (!decoded) {
+      throw new Error("Invalid refresh token");
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+    });
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    return this.generateTokens(user.id);
+  }
+
+  // Verify email
+  async verifyEmail(token) {
+    const user = await prisma.user.findFirst({
+      where: {
+        email_verification_token: token,
+        email_verification_expires: {
+          gt: new Date(),
+        },
+      },
+    });
+
+    if (!user) {
+      throw new Error("Invalid or expired verification token");
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        email_verified: true,
+        email_verification_token: null,
+        email_verification_expires: null,
+        status: USER_STATUS.ACTIVE,
+      },
+    });
+
+    return user;
+  }
+
+  // Request password reset
+  async requestPasswordReset(email) {
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const resetToken = generateToken();
+    const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        reset_password_token: resetToken,
+        reset_password_expires: resetExpires,
+      },
+    });
+
+    try {
+      await emailService.sendPasswordResetEmail(email, user.name, resetToken);
+    } catch (error) {
+      console.error("Failed to send password reset email:", error);
+      throw new Error("Failed to send password reset email");
+    }
+
+    return { message: "Password reset email sent" };
+  }
+
+  // Reset password
+  async resetPassword(token, newPassword) {
+    const user = await prisma.user.findFirst({
+      where: {
+        reset_password_token: token,
+        reset_password_expires: {
+          gt: new Date(),
+        },
+      },
+    });
+
+    if (!user) {
+      throw new Error("Invalid or expired reset token");
+    }
+
+    const hashedPassword = await this.hashPassword(newPassword);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password_hash: hashedPassword,
+        reset_password_token: null,
+        reset_password_expires: null,
+      },
+    });
+
+    await prisma.userSession.updateMany({
+      where: { user_id: user.id, is_active: true },
+      data: {
+        is_active: false,
+        logged_out_at: new Date(),
+      },
+    });
+
+    return { message: "Password reset successfully" };
+  }
+
+  // Get user by ID
+  async getUserById(userId) {
+    const cachedUser = await redisHelpers.get(`user:${userId}`);
+    if (cachedUser) {
+      return cachedUser;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        listings: {
+          where: { is_active: true },
+          take: 5,
+          orderBy: { created_at: "desc" },
+        },
+        bookings: {
+          take: 5,
+          orderBy: { created_at: "desc" },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const { password_hash, ...userWithoutPassword } = user;
+    await redisHelpers.set(`user:${userId}`, userWithoutPassword, 3600);
+
+    return userWithoutPassword;
+  }
+
+  // Update user
+  async updateUser(userId, updateData) {
+    const { password_hash, email, role, ...safeData } = updateData;
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: safeData,
+    });
+
+    await redisHelpers.del(`user:${userId}`);
+
+    const { password_hash: _, ...userWithoutPassword } = user;
+    return userWithoutPassword;
+  }
+
+  // Change password
+  async changePassword(userId, currentPassword, newPassword) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { password_hash: true },
+    });
+
+    const isMatch = await this.comparePassword(currentPassword, user.password_hash);
+    if (!isMatch) {
+      throw new Error("Current password is incorrect");
+    }
+
+    const hashedPassword = await this.hashPassword(newPassword);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password_hash: hashedPassword },
+    });
+
+    await prisma.userSession.updateMany({
+      where: {
+        user_id: userId,
+        is_active: true,
+      },
+      data: {
+        is_active: false,
+        logged_out_at: new Date(),
+      },
+    });
+
+    return { message: "Password changed successfully" };
+  }
+
+  // Create host profile
+  async createHostProfile(userId, hostData) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    if (user.role === "host") {
+      throw new Error("User is already a host");
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        role: "host",
+        status: USER_STATUS.PENDING,
+        host_details: {
+          rating: 0,
+          totalListings: 0,
+          verified: false,
+          notificationSent: {
+            oneWeek: false,
+            twoDays: false,
+          },
+          ...hostData,
+        },
+        id_images: hostData.idImages || [],
+      },
+    });
+
+    try {
+      await emailService.sendHostVerificationEmail(user.email, user.name);
+    } catch (error) {
+      console.error("Failed to send host verification email:", error);
+    }
+
+    const { password_hash, ...userWithoutPassword } = updatedUser;
+    return userWithoutPassword;
   }
 }
 
