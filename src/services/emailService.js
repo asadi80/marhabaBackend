@@ -1,3 +1,4 @@
+//src/service/emailService
 const nodemailer = require('nodemailer');
 
 class EmailService {
@@ -9,7 +10,15 @@ class EmailService {
     const pass = process.env.EMAIL_PASS || process.env.SMTP_PASS;
     const from = process.env.EMAIL_FROM || process.env.SMTP_FROM || user;
     const secure = process.env.EMAIL_SECURE === 'true' || process.env.SMTP_SECURE === 'true' || port === 465;
-
+ // Debug: Log all email-related env vars
+    console.log('📧 Email Configuration Debug:');
+    console.log('  EMAIL_HOST:', process.env.EMAIL_HOST || 'NOT SET');
+    console.log('  EMAIL_PORT:', process.env.EMAIL_PORT || 'NOT SET');
+    console.log('  EMAIL_USER:', process.env.EMAIL_USER || 'NOT SET');
+    console.log('  EMAIL_PASS:', process.env.EMAIL_PASS ? 'SET (hidden)' : 'NOT SET');
+    console.log('  EMAIL_FROM:', process.env.EMAIL_FROM || 'NOT SET');
+    console.log('  EMAIL_SECURE:', process.env.EMAIL_SECURE || 'NOT SET');
+    
     if (host && user && pass) {
       this.transporter = nodemailer.createTransport({
         host: host,
