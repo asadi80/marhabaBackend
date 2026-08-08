@@ -1,3 +1,4 @@
+//src/controller/authController
 const authService = require('../services/authService');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { maskSensitiveData } = require('../utils/helpers');

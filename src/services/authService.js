@@ -1,3 +1,4 @@
+//src/service/authService
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { prisma } = require('../config/database');
@@ -160,7 +161,7 @@ class AuthService {
 
     if (!user) {
       console.log('❌ User not found:', email);
-      throw new Error('Invalid credentials');
+      throw new Error('User not found');
     }
 
     // Check if user is active
