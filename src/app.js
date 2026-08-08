@@ -36,6 +36,7 @@ const corsOptions = {
       'http://localhost:3000',
       'http://localhost:5000',
       'https://marhababackend.onrender.com',
+      'https://marhaba-frontend-one.vercel.app',
       process.env.FRONTEND_URL,
     ].filter(Boolean);
     
