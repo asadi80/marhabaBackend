@@ -6,6 +6,8 @@ const { maskSensitiveData } = require('../utils/helpers');
 // @route   POST /api/v1/auth/register
 // @access  Public
 const register = asyncHandler(async (req, res) => {
+    console.log("register");
+    
   const userData = req.body;
   const result = await authService.register(userData);
 
