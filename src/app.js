@@ -12,9 +12,12 @@ const listingRoutes = require('./routes/listingRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
 
 const app = express();
+const logger = require('./middleware/logger');
 
 // This tells Express to trust the X-Forwarded-* headers
 app.set('trust proxy', 1); // Trust first proxy
+
+
 
 // Security middleware
 app.use(helmet({
