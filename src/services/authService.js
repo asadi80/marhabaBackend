@@ -150,83 +150,147 @@ class AuthService {
     };
   }
 
-  // Login user
-  async login(email, password, deviceInfo = {}) {
-    console.log('🔐 Login attempt:', { email });
+ // Login user
+async login(email, password, deviceInfo = {}) {
+  console.log('🔐 Login attempt:', { email });
 
-    // Find user
-    const user = await prisma.user.findUnique({
-      where: { email: email.trim().toLowerCase() },
-    });
+  // Normalize email
+  const normalizedEmail = email.trim().toLowerCase();
 
-    if (!user) {
-      console.log('❌ User not found:', email);
-      throw new Error('User not found');
-    }
+  // ─── Find user ─────────────────────────────────────────────
+  const user = await prisma.user.findUnique({
+    where: { email: normalizedEmail },
+  });
 
-    // Check if user is active
-    if (user.status === USER_STATUS.SUSPENDED || user.status === USER_STATUS.BANNED) {
-      console.log(`❌ Account ${user.status}:`, email);
-      throw new Error(`Account is ${user.status}`);
-    }
-
-    // Check password
-    const isMatch = await this.comparePassword(password, user.password_hash);
-    if (!isMatch) {
-      console.log('❌ Invalid password:', email);
-      throw new Error('Invalid credentials');
-    }
-
-    console.log('✅ Login successful:', email);
-
-    // Update last active
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { last_active: new Date() },
-    });
-
-    // Generate tokens
-    const tokens = this.generateTokens(user.id);
-
-    // Create session
-    try {
-      await prisma.userSession.create({
-        data: {
-          user_id: user.id,
-          device: deviceInfo.device || null,
-          browser: deviceInfo.browser || null,
-          os: deviceInfo.os || null,
-          ip_address: deviceInfo.ip || null,
-          user_agent: deviceInfo.userAgent || null,
-          is_active: true,
-          logged_in_at: new Date(),
-        },
-      });
-    } catch (error) {
-      console.error('❌ Failed to create session:', error.message);
-    }
-
-    // Cache user data (non-blocking)
-    try {
-      await redisHelpers.set(`user:${user.id}`, {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-      }, 3600);
-    } catch (error) {
-      console.error('❌ Failed to cache user:', error.message);
-    }
-
-    const { password_hash, ...userWithoutPassword } = user;
-
-    return {
-      user: userWithoutPassword,
-      tokens,
-    };
+  if (!user) {
+    console.log('❌ User not found:', normalizedEmail);
+    throw new Error('Invalid credentials');
   }
 
-  // ... rest of the methods remain the same
+  // ─── Email verification check ─────────────────────────────
+  if (!user.email_verified) {
+    console.log('❌ Email not verified:', normalizedEmail);
+    throw new Error('Please verify your email address before logging in.');
+  }
+
+  // ─── Password check ────────────────────────────────────────
+  const isMatch = await this.comparePassword(password, user.password_hash);
+  if (!isMatch) {
+    console.log('❌ Invalid password:', normalizedEmail);
+    throw new Error('Invalid credentials');
+  }
+
+  console.log('✅ Login successful:', normalizedEmail);
+
+  // ─── Host logic ────────────────────────────────────────────
+  let loginMessage = 'Login successful';
+  let requiresIdUpload = false;
+  let isHostApproved = true;
+
+  if (user.role === 'host') {
+    const hasIdImages = user.id_images && user.id_images.length > 0;
+
+    if (user.status === 'pending') {
+      if (!hasIdImages) {
+        requiresIdUpload = true;
+        loginMessage = 'Please upload your ID/Passport to complete verification';
+      } else {
+        loginMessage = 'Your host account is pending admin approval.';
+        isHostApproved = false;
+      }
+    } else if (user.status === 'suspended') {
+      console.log('❌ Account suspended:', normalizedEmail);
+      throw new Error('Your account has been suspended.');
+    }
+  }
+
+  // ─── Update last active ────────────────────────────────────
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { last_active: new Date() },
+  });
+
+  // ─── Reset old sessions ────────────────────────────────────
+  await prisma.userSession.updateMany({
+    where: {
+      user_id: user.id,
+      is_active: true,
+    },
+    data: {
+      is_active: false,
+      logged_out_at: new Date(),
+    },
+  });
+
+  // ─── Generate tokens ───────────────────────────────────────
+  const tokens = this.generateTokens(user.id);
+
+  // ─── Create session ────────────────────────────────────────
+  try {
+    await prisma.userSession.create({
+      data: {
+        user_id: user.id,
+        device: deviceInfo.device || 'desktop',
+        browser: deviceInfo.browser || 'unknown',
+        os: deviceInfo.os || 'unknown',
+        ip_address: deviceInfo.ip || null,
+        user_agent: deviceInfo.userAgent || null,
+        is_active: true,
+        logged_in_at: new Date(),
+      },
+    });
+  } catch (error) {
+    console.error('❌ Failed to create session:', error.message);
+  }
+
+  // ─── Log event ─────────────────────────────────────────────
+  try {
+    await prisma.userEvent.create({
+      data: {
+        user_id: user.id,
+        event_type: 'login',
+        metadata: {
+          ip: deviceInfo.ip || null,
+          device: deviceInfo.device || 'desktop',
+          browser: deviceInfo.browser || 'unknown',
+          os: deviceInfo.os || 'unknown',
+          userAgent: deviceInfo.userAgent || null,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('❌ Failed to log event:', error.message);
+  }
+
+  // ─── Cache user data (non-blocking) ───────────────────────
+  try {
+    await redisHelpers.set(`user:${user.id}`, {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      requiresIdUpload,
+      isHostApproved,
+    }, 3600);
+  } catch (error) {
+    console.error('❌ Failed to cache user:', error.message);
+  }
+
+  // ─── Response ──────────────────────────────────────────────
+  const { password_hash, ...userWithoutPassword } = user;
+
+  return {
+    user: {
+      ...userWithoutPassword,
+      requiresIdUpload,
+      isHostApproved,
+      loginMessage,
+    },
+    tokens,
+  };
+}
+
 }
 
 module.exports = new AuthService();

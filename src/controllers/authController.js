@@ -51,27 +51,34 @@ const register = asyncHandler(async (req, res) => {
 // @desc    Login user
 // @route   POST /api/v1/auth/login
 // @access  Public
+// @desc    Login user
+// @route   POST /api/v1/auth/login
+// @access  Public
 const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
+  
+  // Parse device info from headers
   const deviceInfo = {
-    ip: req.ip,
-    userAgent: req.headers['user-agent'],
-    device: req.headers['x-device'] || null,
-    browser: req.headers['x-browser'] || null,
-    os: req.headers['x-os'] || null,
+    ip: req.ip || req.headers['x-forwarded-for']?.split(',')[0] || null,
+    userAgent: req.headers['user-agent'] || null,
+    device: req.headers['x-device'] || 'desktop',
+    browser: req.headers['x-browser'] || 'unknown',
+    os: req.headers['x-os'] || 'unknown',
   };
 
   const result = await authService.login(email, password, deviceInfo);
 
   res.status(200).json({
     success: true,
+    message: result.user.loginMessage || 'Login successful',
     data: {
       user: maskSensitiveData(result.user),
       tokens: result.tokens,
+      requiresIdUpload: result.user.requiresIdUpload || false,
+      isHostApproved: result.user.isHostApproved !== undefined ? result.user.isHostApproved : true,
     },
   });
 });
-
 // @desc    Logout user
 // @route   POST /api/v1/auth/logout
 // @access  Private
