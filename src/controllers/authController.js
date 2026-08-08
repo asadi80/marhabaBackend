@@ -7,19 +7,45 @@ const { maskSensitiveData } = require('../utils/helpers');
 // @route   POST /api/v1/auth/register
 // @access  Public
 const register = asyncHandler(async (req, res) => {
-    console.log("register");
-    
+  console.log("📝 Registration request received");
+  console.log("  Body:", req.body);
+  console.log("  Headers:", req.headers['content-type']);
+  
   const userData = req.body;
-  const result = await authService.register(userData);
-
-  res.status(201).json({
-    success: true,
-    message: 'User registered successfully. Please verify your email.',
-    data: {
-      user: maskSensitiveData(result.user),
-      tokens: result.tokens,
-    },
-  });
+  
+  // Validate required fields
+  const required = ['name', 'email', 'password', 'phone_number'];
+  const missing = required.filter(field => !userData[field]);
+  
+  if (missing.length > 0) {
+    return res.status(400).json({
+      success: false,
+      message: `Missing required fields: ${missing.join(', ')}`,
+      errors: missing.map(field => ({
+        field,
+        message: `${field} is required`
+      }))
+    });
+  }
+  
+  try {
+    const result = await authService.register(userData);
+    
+    res.status(201).json({
+      success: true,
+      message: 'User registered successfully. Please verify your email.',
+      data: {
+        user: maskSensitiveData(result.user),
+        tokens: result.tokens,
+      },
+    });
+  } catch (error) {
+    console.error('❌ Registration service error:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Registration failed',
+    });
+  }
 });
 
 // @desc    Login user
