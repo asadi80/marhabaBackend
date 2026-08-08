@@ -37,6 +37,7 @@ const corsOptions = {
       'http://localhost:5000',
       'https://mar-haba.ly',
       'https://www.mar-haba.ly',
+      'https://api.mar-haba.ly',
       process.env.FRONTEND_URL,
     ].filter(Boolean);
     
