@@ -129,7 +129,7 @@ model Booking {
 }
 
 model HostBlockedUser {
-  id         String   @id @default(uuid())) @db.Uuid
+  id         String   @id @default(uuid()) @db.Uuid
   host_id    String   @db.Uuid
   user_id    String   @db.Uuid
   reason     String   @db.VarChar(50)
