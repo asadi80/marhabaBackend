@@ -96,8 +96,9 @@ const userValidators = {
       .matches(/^\+?[1-9]\d{1,14}$/)
       .withMessage("Invalid phone number format"),
 
-    body("role").optional().isIn(["user", "host"]).withMessage("Invalid role"),
+    body("role").optional().isIn(["user", "host", "admin", "super_admin"]).withMessage("Invalid role"),
   ],
+  
 
   login: [
     body("email")
