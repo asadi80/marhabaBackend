@@ -1,4 +1,4 @@
-//src/controller/authController
+// src/controllers/authController.js
 const authService = require('../services/authService');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { maskSensitiveData } = require('../utils/helpers');
@@ -51,9 +51,6 @@ const register = asyncHandler(async (req, res) => {
 // @desc    Login user
 // @route   POST /api/v1/auth/login
 // @access  Public
-// @desc    Login user
-// @route   POST /api/v1/auth/login
-// @access  Public
 const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   
@@ -79,6 +76,7 @@ const login = asyncHandler(async (req, res) => {
     },
   });
 });
+
 // @desc    Logout user
 // @route   POST /api/v1/auth/logout
 // @access  Private
@@ -117,14 +115,35 @@ const refreshToken = asyncHandler(async (req, res) => {
 // @route   GET /api/v1/auth/verify-email/:token
 // @access  Public
 const verifyEmail = asyncHandler(async (req, res) => {
-  const { token } = req.params;
-  const user = await authService.verifyEmail(token);
+  try {
+    const { token } = req.params;
 
-  res.status(200).json({
-    success: true,
-    message: 'Email verified successfully',
-    data: { user: maskSensitiveData(user) },
-  });
+    if (!token) {
+      return res.redirect(
+        `${process.env.NEXTAUTH_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token`
+      );
+    }
+
+    // Call authService.verifyEmail
+    const result = await authService.verifyEmail(token);
+
+    // Check if there was an error
+    if (result.error) {
+      return res.redirect(
+        `${process.env.NEXTAUTH_URL || "https://mar-haba.ly"}/verification-result?error=${result.error}`
+      );
+    }
+
+    // Success - redirect with verified status
+    const redirectUrl = `${process.env.NEXTAUTH_URL || "https://mar-haba.ly"}/verification-result?verified=true&role=${result.user.role}`;
+    return res.redirect(redirectUrl);
+    
+  } catch (error) {
+    console.error("Email verification error:", error);
+    return res.redirect(
+      `${process.env.NEXTAUTH_URL || "https://mar-haba.ly"}/verification-result?error=server-error`
+    );
+  }
 });
 
 // @desc    Request password reset

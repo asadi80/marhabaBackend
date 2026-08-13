@@ -10,6 +10,7 @@ const { errorHandler, notFound } = require("./middleware/errorHandler");
 const authRoutes = require("./routes/authRoutes");
 const listingRoutes = require("./routes/listingRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
+const AdminRoutes = require('./routes/adminRoutes')
 
 const app = express();
 const logger = require("./middleware/logger");
@@ -97,6 +98,7 @@ app.get("/health", (req, res) => {
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/listings", listingRoutes);
 app.use("/api/v1/bookings", bookingRoutes);
+app.use("/api/v1/dashboard", AdminRoutes);
 
 // Root route
 app.get("/", (req, res) => {
@@ -108,6 +110,7 @@ app.get("/", (req, res) => {
       auth: "/api/v1/auth",
       listings: "/api/v1/listings",
       bookings: "/api/v1/bookings",
+      dashboard: "/api/v1/dashboard",
       health: "/health",
     },
   });

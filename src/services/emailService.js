@@ -79,8 +79,8 @@ class EmailService {
   }
 
   async sendVerificationEmail(email, name, token) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const verificationUrl = `${frontendUrl}/api/auth/verify-email?token=${token}`;
+    const frontendUrl = process.env.BASE_URL || 'http://localhost:5173';
+    const verificationUrl = `${frontendUrl}/api/v1/auth/verify-email?token=${token}`;
 
     const emailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px;">

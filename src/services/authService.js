@@ -199,7 +199,7 @@ class AuthService {
 
     if (!user) {
       console.log("❌ User not found:", normalizedEmail);
-      throw new Error("Invalid credentials");
+      throw new Error("User not found");
     }
 
     // ─── Email verification check ─────────────────────────────
@@ -375,8 +375,13 @@ class AuthService {
     return this.generateTokens(user.id);
   }
 
-  // Verify email
+  // Verify email - UPDATED with redirect-friendly response
   async verifyEmail(token) {
+    if (!token) {
+      return { error: 'invalid-token' };
+    }
+
+    // Find user with valid token
     const user = await prisma.user.findFirst({
       where: {
         email_verification_token: token,
@@ -387,20 +392,38 @@ class AuthService {
     });
 
     if (!user) {
-      throw new Error("Invalid or expired verification token");
+      return { error: 'invalid-expired' };
     }
 
-    await prisma.user.update({
+    // If email already verified
+    if (user.email_verified) {
+      return { error: 'already-verified' };
+    }
+
+    // Determine new status based on role
+    let newStatus = user.status;
+    if (user.role === "user") {
+      newStatus = USER_STATUS.ACTIVE; // or "confirmed" based on your constants
+    }
+    // For hosts, keep as pending until admin approval
+
+    // Update user
+    const updatedUser = await prisma.user.update({
       where: { id: user.id },
       data: {
         email_verified: true,
         email_verification_token: null,
         email_verification_expires: null,
-        status: USER_STATUS.ACTIVE,
+        status: newStatus,
       },
     });
 
-    return user;
+    // Clear cache
+    await redisHelpers.del(`user:${user.id}`);
+
+    // Return success with user data
+    const { password_hash, ...userWithoutPassword } = updatedUser;
+    return { user: userWithoutPassword };
   }
 
   // Request password reset
