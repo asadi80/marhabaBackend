@@ -383,7 +383,7 @@ const deleteUser = asyncHandler(async (req, res) => {
 });
 
 // @desc    Create admin or super_admin
-// @route   POST /api/v1/admin/users
+// @route   POST /api/v1/dashboard/createAdmin
 // @access  Private (Super Admin only)
 const createAdmin = asyncHandler(async (req, res) => {
   const { name, email, password, phone_number, role = 'admin' } = req.body;

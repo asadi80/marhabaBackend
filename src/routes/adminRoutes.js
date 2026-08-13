@@ -15,14 +15,14 @@ router.use(protect);
 router.use(authorize('admin', 'super_admin'));
 
 // ==================== Dashboard ====================
-// GET /api/v1/admin/stats
+// GET /api/v1/dashboard/stats
 router.get('/stats', adminController.getStats);
 
 // ==================== User Management ====================
 // GET /api/v1/admin/users
 router.get('/users', adminController.getUsers);
 
-// GET /api/v1/admin/users/:id
+// GET /api/v1/dashboard/users/:id
 router.get(
   '/users/:id',
   commonValidators.id('id'),
@@ -30,7 +30,7 @@ router.get(
   adminController.getUserById
 );
 
-// PUT /api/v1/admin/users/:id
+// PUT /api/v1/dashboard/users/:id
 router.put(
   '/users/:id',
   commonValidators.id('id'),
@@ -49,7 +49,7 @@ router.delete(
 
 // POST /api/v1/admin/users (Create admin/super_admin)
 router.post(
-  '/createAdmin',
+  '/user/createAdmin',
   userValidators.register,
   handleValidationErrors,
   adminController.createAdmin
