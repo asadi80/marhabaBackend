@@ -99,7 +99,7 @@ const userValidators = {
     body("role").optional().isIn(["user", "host"]).withMessage("Invalid role"),
   ],
 
-  createAdmin =[
+  createAdmin :[
     body('name')
       .trim()
       .notEmpty()
