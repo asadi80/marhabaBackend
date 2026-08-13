@@ -1,3 +1,4 @@
+//src/middleware/auth
 const authService = require('../services/authService');
 const { prisma } = require('../config/database');
 

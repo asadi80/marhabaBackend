@@ -50,7 +50,9 @@ router.delete(
 // POST /api/v1/admin/users (Create admin/super_admin)
 router.post(
   '/user/createAdmin',
-  userValidators.register,
+  protect,
+  authorize('super_admin'),
+  userValidators.createAdmin,
   handleValidationErrors,
   adminController.createAdmin
 );

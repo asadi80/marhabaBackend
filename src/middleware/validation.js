@@ -96,9 +96,40 @@ const userValidators = {
       .matches(/^\+?[1-9]\d{1,14}$/)
       .withMessage("Invalid phone number format"),
 
-    body("role").optional().isIn(["user", "host", "admin", "super_admin"]).withMessage("Invalid role"),
+    body("role").optional().isIn(["user", "host"]).withMessage("Invalid role"),
   ],
-  
+
+  createAdmin =[
+    body('name')
+      .trim()
+      .notEmpty()
+      .withMessage('Name is required'),
+
+    body('email')
+      .trim()
+      .notEmpty()
+      .withMessage('Email is required')
+      .isEmail()
+      .withMessage('Invalid email format')
+      .normalizeEmail(),
+
+    body('password')
+      .notEmpty()
+      .withMessage('Password is required')
+      .isLength({ min: 8 })
+      .withMessage('Password must be at least 8 characters'),
+
+    body('phone_number')
+      .trim()
+      .notEmpty()
+      .withMessage('Phone number is required'),
+
+    body('role')
+      .optional()
+      .isIn(['admin', 'super_admin'])
+      .withMessage('Invalid admin role'),
+  ],
+
 
   login: [
     body("email")
