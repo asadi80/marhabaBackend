@@ -49,7 +49,7 @@ router.delete(
 
 // POST /api/v1/admin/users (Create admin/super_admin)
 router.post(
-  '/users',
+  '/createAdmin',
   userValidators.register,
   handleValidationErrors,
   adminController.createAdmin
