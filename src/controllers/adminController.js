@@ -478,7 +478,7 @@ const getUserListings = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   const listings = await prisma.listing.findMany({
-    where: { user_id: id },
+    where: { host_id: id },  // Changed from user_id to host_id
     orderBy: { created_at: 'desc' },
     include: {
       bookings: {
@@ -515,7 +515,7 @@ const getUserBookings = asyncHandler(async (req, res) => {
           id: true,
           title: true,
           images: true,
-          user_id: true,
+          host_id: true,  // Changed from user_id to host_id
         },
       },
     },
@@ -525,7 +525,7 @@ const getUserBookings = asyncHandler(async (req, res) => {
   const bookingsAsHost = await prisma.booking.findMany({
     where: {
       listing: {
-        user_id: id,
+        host_id: id,  // Changed from user_id to host_id
       },
     },
     orderBy: { created_at: 'desc' },
@@ -755,7 +755,7 @@ const getAllListings = asyncHandler(async (req, res) => {
     prisma.listing.findMany({
       where: filter,
       include: {
-        user: {
+        host: {  // Changed from 'user' to 'host'
           select: {
             id: true,
             name: true,
