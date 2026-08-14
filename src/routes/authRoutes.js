@@ -9,7 +9,7 @@ const { userValidators, handleValidationErrors } = require('../middleware/valida
 router.post('/register',authLimiter,  userValidators.register, handleValidationErrors, authController.register);
 router.post('/login', authLimiter, userValidators.login, handleValidationErrors, authController.login);
 router.post('/refresh', authLimiter, authController.refreshToken);
-router.get('/verify-email/:token', authController.verifyEmail);
+router.get('/verify-email', authController.verifyEmail);
 router.post('/forgot-password', authLimiter, authController.forgotPassword);
 router.post('/reset-password/:token', authLimiter, authController.resetPassword);
 
