@@ -289,7 +289,10 @@ const updateUser = asyncHandler(async (req, res) => {
 // @desc    Delete user and all associated data
 // @route   DELETE /api/v1/admin/users/:id
 // @access  Private (Super Admin only)
-const deleteUser = asyncHandler(async (req, res) => {
+// @desc    Delete user and all associated data
+// @route   DELETE /api/v1/dashboard/users/:id
+// @access  Private (Super Admin only)
+const deleteDashboardUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   // Check if user exists
@@ -390,7 +393,7 @@ const deleteUser = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    message: 'User deleted successfully',
+    message: 'User and all associated listings and bookings deleted successfully',
     deletedCount: {
       user: 1,
       listings: result.listings,
@@ -398,7 +401,6 @@ const deleteUser = asyncHandler(async (req, res) => {
     },
   });
 });
-
 // @desc    Create admin or super_admin
 // @route   POST /api/v1/dashboard/createAdmin
 // @access  Private (Super Admin only)
