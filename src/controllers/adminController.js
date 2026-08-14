@@ -36,11 +36,11 @@ const getStats = asyncHandler(async (req, res) => {
     prisma.user.count({ where: { role: 'super_admin' } }),
     prisma.listing.count({ where: { is_active: true } }),
     prisma.booking.count(),
-    prisma.user.count({ 
-      where: { 
-        role: 'host', 
-        status: 'pending' 
-      } 
+    prisma.user.count({
+      where: {
+        role: 'host',
+        status: 'pending'
+      }
     }),
     prisma.booking.aggregate({
       _sum: { total_price: true },
@@ -73,7 +73,7 @@ const getStats = asyncHandler(async (req, res) => {
 // @access  Private (Admin/Super Admin)
 const getUsers = asyncHandler(async (req, res) => {
   const { role, status, search, page = 1, limit = 50 } = req.query;
-  
+
   const skip = (parseInt(page) - 1) * parseInt(limit);
   const take = parseInt(limit);
 
@@ -231,14 +231,14 @@ const updateUser = asyncHandler(async (req, res) => {
     const now = new Date();
     const expiryDate = new Date(now);
     expiryDate.setMonth(expiryDate.getMonth() + 6);
-    
+
     updateData.host_details = {
       ...existingUser.host_details,
       confirmed_at: now,
       expires_at: expiryDate,
       verified: true,
     };
-    
+
     // Send confirmation email
     await emailService.sendHostConfirmationEmail(
       existingUser.email,
@@ -430,8 +430,18 @@ const createAdmin = asyncHandler(async (req, res) => {
   });
 
   // Send welcome email
-  await emailService.sendAdminWelcomeEmail(email, name, role);
+  const emailResult = await emailService.sendAdminWelcomeEmail(
+    email,
+    name,
+    role
+  );
 
+  if (!emailResult.success) {
+    console.error(
+      "⚠️ Admin created, but welcome email failed:",
+      emailResult.error
+    );
+  }
   const { password_hash, ...userWithoutPassword } = user;
 
   res.status(201).json({

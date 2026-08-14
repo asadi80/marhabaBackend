@@ -29,7 +29,7 @@ class EmailService {
 
     try {
       console.log(`📧 Sending email to: ${to}`);
-      
+
       const transporter = nodemailer.createTransport({
         host: this.host,
         port: this.port,
@@ -61,7 +61,7 @@ class EmailService {
       });
 
       console.log(`✅ Email sent: ${info.messageId}`);
-      
+
       return {
         success: true,
         messageId: info.messageId,
@@ -139,6 +139,160 @@ class EmailService {
       to: email,
       subject: "Welcome to Marhaba! Please verify your email / مرحباً بك في مرحبا! يرجى تأكيد بريدك الإلكتروني",
       text: `Welcome to Marhaba! Please verify your email by clicking this link: ${verificationUrl}`,
+      html: emailHtml,
+    });
+  }
+
+  async sendAdminWelcomeEmail(email, name, role) {
+    const loginUrl = process.env.BASE_URL || "https://mar-haba.ly";
+
+    const roleLabel =
+      role === "super_admin"
+        ? "Super Administrator"
+        : "Administrator";
+
+    const emailHtml = `
+<div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 30px;">
+
+  <!-- English -->
+  <div style="margin-bottom: 35px;">
+    <h2 style="color: #1a1a2e;">
+      Welcome to Marhaba Admin
+    </h2>
+
+    <p>Hello ${name},</p>
+
+    <p>
+      Your Marhaba administrator account has been created successfully.
+    </p>
+
+    <div style="
+      background: #f7f6f2;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+    ">
+      <p style="margin: 0 0 10px;">
+        <strong>Account type:</strong> ${roleLabel}
+      </p>
+
+      <p style="margin: 0;">
+        <strong>Email:</strong> ${email}
+      </p>
+    </div>
+
+    <p>
+      You can now log in to the Marhaba dashboard using your email address
+      and the password provided when your account was created.
+    </p>
+
+    <div style="text-align: center; margin: 25px 0;">
+      <a
+        href="${loginUrl}/login"
+        style="
+          background-color: #1a1a2e;
+          color: #e8c547;
+          padding: 12px 24px;
+          text-decoration: none;
+          border-radius: 6px;
+          display: inline-block;
+        "
+      >
+        Open Marhaba Dashboard
+      </a>
+    </div>
+
+    <p>
+      For security reasons, please keep your password private.
+    </p>
+
+    <p>
+      Best regards,<br>
+      Marhaba Team
+    </p>
+  </div>
+
+  <div style="border-top: 2px solid #e5e7eb; margin: 25px 0;"></div>
+
+  <!-- Arabic -->
+  <div style="direction: rtl; text-align: right;">
+
+    <h2 style="color: #1a1a2e;">
+      مرحباً بك في لوحة تحكم مرحبا
+    </h2>
+
+    <p>مرحباً ${name}،</p>
+
+    <p>
+      تم إنشاء حساب المسؤول الخاص بك في منصة مرحبا بنجاح.
+    </p>
+
+    <div style="
+      background: #f7f6f2;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+    ">
+      <p style="margin: 0 0 10px;">
+        <strong>نوع الحساب:</strong> ${roleLabel}
+      </p>
+
+      <p style="margin: 0;">
+        <strong>البريد الإلكتروني:</strong> ${email}
+      </p>
+    </div>
+
+    <p>
+      يمكنك الآن تسجيل الدخول إلى لوحة تحكم مرحبا باستخدام بريدك الإلكتروني
+      وكلمة المرور التي تم استخدامها عند إنشاء الحساب.
+    </p>
+
+    <div style="text-align: center; margin: 25px 0;">
+      <a
+        href="${loginUrl}/login"
+        style="
+          background-color: #1a1a2e;
+          color: #e8c547;
+          padding: 12px 24px;
+          text-decoration: none;
+          border-radius: 6px;
+          display: inline-block;
+        "
+      >
+        فتح لوحة تحكم مرحبا
+      </a>
+    </div>
+
+    <p>
+      لأسباب أمنية، يرجى عدم مشاركة كلمة المرور الخاصة بك مع أي شخص.
+    </p>
+
+    <p>
+      مع أطيب التحيات،<br>
+      فريق مرحبا
+    </p>
+
+  </div>
+</div>
+`;
+
+    return this.sendEmail({
+      to: email,
+      subject: "Marhaba Admin Account Created / تم إنشاء حساب مسؤول مرحبا",
+      text: `
+Welcome to Marhaba Admin.
+
+Hello ${name},
+
+Your ${roleLabel} account has been created successfully.
+
+Email: ${email}
+
+Login: ${loginUrl}/login
+
+Best regards,
+Marhaba Team
+    `,
       html: emailHtml,
     });
   }

@@ -33,6 +33,7 @@ router.get(
 // PUT /api/v1/dashboard/users/:id
 router.put(
   '/users/:id',
+  authorize('admin','super_admin'),
   commonValidators.id('id'),
   userValidators.updateProfile,
   handleValidationErrors,
