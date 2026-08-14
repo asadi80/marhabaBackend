@@ -299,9 +299,6 @@ const deleteUser = asyncHandler(async (req, res) => {
       listings: {
         select: { id: true },
       },
-      bookings: {
-        select: { id: true },
-      },
     },
   });
 
@@ -340,7 +337,7 @@ const deleteUser = asyncHandler(async (req, res) => {
 
     let deletedBookingsCount = 0;
     
-    // Delete bookings on user's listings (as host) - using listing_id
+    // Delete bookings on user's listings (as host)
     if (listingIds.length > 0) {
       const deletedHostBookings = await prisma.booking.deleteMany({
         where: {
@@ -352,7 +349,7 @@ const deleteUser = asyncHandler(async (req, res) => {
       deletedBookingsCount += deletedHostBookings.count;
     }
 
-    // Delete bookings where user is the guest - using user_id
+    // Delete bookings where user is the guest
     const deletedGuestBookings = await prisma.booking.deleteMany({
       where: {
         user_id: id,
@@ -360,17 +357,17 @@ const deleteUser = asyncHandler(async (req, res) => {
     });
     deletedBookingsCount += deletedGuestBookings.count;
 
-    // Delete user's listings - using host_id
+    // Delete user's listings
     const deletedListings = await prisma.listing.deleteMany({
       where: { host_id: id },
     });
 
-    // Delete user's sessions - using user_id
+    // Delete user's sessions
     await prisma.userSession.deleteMany({
       where: { user_id: id },
     });
 
-    // Delete user's events - using user_id
+    // Delete user's events
     await prisma.userEvent.deleteMany({
       where: { user_id: id },
     });
