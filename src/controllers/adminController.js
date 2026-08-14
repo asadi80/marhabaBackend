@@ -467,7 +467,118 @@ const createAdmin = asyncHandler(async (req, res) => {
     user: userWithoutPassword,
   });
 });
+// @desc    Delete user (Dashboard version)
+// @route   DELETE /api/v1/dashboard/users/:id
+// @access  Private (Super Admin only)
+const deleteDashboardUser = asyncHandler(async (req, res) => {
+  const { id } = req.params;
 
+  // Check if user exists
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: {
+      listings: {
+        select: { id: true },
+      },
+    },
+  });
+
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: 'User not found',
+    });
+  }
+
+  // Prevent deleting super_admin unless current user is super_admin
+  if (user.role === 'super_admin' && req.user.role !== 'super_admin') {
+    return res.status(403).json({
+      success: false,
+      message: 'Only super admins can delete super admin accounts',
+    });
+  }
+
+  // Prevent deleting self
+  if (user.id === req.user.id) {
+    return res.status(400).json({
+      success: false,
+      message: 'You cannot delete your own account',
+    });
+  }
+
+  // Use transaction to delete all associated data
+  const result = await prisma.$transaction(async (prisma) => {
+    // Get all listing IDs for this user
+    const userListings = await prisma.listing.findMany({
+      where: { host_id: id },
+      select: { id: true },
+    });
+    
+    const listingIds = userListings.map(l => l.id);
+
+    let deletedBookingsCount = 0;
+    
+    // Delete bookings on user's listings (as host)
+    if (listingIds.length > 0) {
+      const deletedHostBookings = await prisma.booking.deleteMany({
+        where: {
+          listing_id: {
+            in: listingIds,
+          },
+        },
+      });
+      deletedBookingsCount += deletedHostBookings.count;
+    }
+
+    // Delete bookings where user is the guest
+    const deletedGuestBookings = await prisma.booking.deleteMany({
+      where: {
+        user_id: id,
+      },
+    });
+    deletedBookingsCount += deletedGuestBookings.count;
+
+    // Delete user's listings
+    const deletedListings = await prisma.listing.deleteMany({
+      where: { host_id: id },
+    });
+
+    // Delete user's sessions
+    await prisma.userSession.deleteMany({
+      where: { user_id: id },
+    });
+
+    // Delete user's events
+    await prisma.userEvent.deleteMany({
+      where: { user_id: id },
+    });
+
+    // Delete user
+    const deletedUser = await prisma.user.delete({
+      where: { id },
+    });
+
+    return {
+      user: deletedUser,
+      listings: deletedListings.count,
+      bookings: deletedBookingsCount,
+    };
+  });
+
+  // Clear cache
+  await redisHelpers.del(`user:${id}`);
+  await redisHelpers.del('admin:stats');
+
+  res.status(200).json({
+    success: true,
+    message: 'User deleted successfully',
+    deletedCount: {
+      user: 1,
+      listings: result.listings,
+      bookings: result.bookings,
+    },
+  });
+});
 // @desc    Get user's listings
 // @route   GET /api/v1/admin/users/:id/listings
 // @access  Private (Admin/Super Admin)
