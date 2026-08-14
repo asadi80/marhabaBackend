@@ -116,30 +116,42 @@ const refreshToken = asyncHandler(async (req, res) => {
 // @access  Public
 const verifyEmail = asyncHandler(async (req, res) => {
   try {
-    const { token } = req.params;
+    console.log("🔍 VERIFY EMAIL REQUEST");
+    console.log("URL:", req.originalUrl);
+    console.log("Query:", req.query);
+    console.log("Token:", req.query.token);
+
+    const { token } = req.query;
 
     if (!token) {
+      console.log("❌ No verification token received");
+
       return res.redirect(
         `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token`
       );
     }
 
-    // Call authService.verifyEmail
+    console.log("✅ Verification token received");
+
     const result = await authService.verifyEmail(token);
 
-    // Check if there was an error
+    console.log("🔍 Verification result:", result);
+
     if (result.error) {
       return res.redirect(
-        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=${result.error}`
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=${encodeURIComponent(result.error)}`
       );
     }
 
-    // Success - redirect with verified status
-    const redirectUrl = `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?verified=true&role=${result.user.role}`;
+    const redirectUrl =
+      `${process.env.FRONTEND_URL || "https://mar-haba.ly"}` +
+      `/verification-result?verified=true&role=${encodeURIComponent(result.user.role)}`;
+
     return res.redirect(redirectUrl);
-    
+
   } catch (error) {
-    console.error("Email verification error:", error);
+    console.error("❌ Email verification error:", error);
+
     return res.redirect(
       `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=server-error`
     );
