@@ -25,6 +25,7 @@ router.get('/users', adminController.getUsers);
 // GET /api/v1/dashboard/users/:id
 router.get(
   '/users/:id',
+  authorize('admin','super_admin'),
   commonValidators.id('id'),
   handleValidationErrors,
   adminController.getUserById
@@ -43,6 +44,8 @@ router.put(
 // DELETE /api/v1/admin/users/:id
 router.delete(
   '/users/:id',
+  authorize('admin','super_admin'),
+
   commonValidators.id('id'),
   handleValidationErrors,
   adminController.deleteUser
@@ -62,6 +65,8 @@ router.post(
 // GET /api/v1/admin/users/:id/listings
 router.get(
   '/users/:id/listings',
+    authorize('admin','super_admin'),
+
   commonValidators.id('id'),
   handleValidationErrors,
   adminController.getUserListings
@@ -70,6 +75,8 @@ router.get(
 // GET /api/v1/admin/users/:id/bookings
 router.get(
   '/users/:id/bookings',
+    authorize('admin','super_admin'),
+
   commonValidators.id('id'),
   handleValidationErrors,
   adminController.getUserBookings
@@ -78,6 +85,8 @@ router.get(
 // GET /api/v1/admin/users/:id/sessions
 router.get(
   '/users/:id/sessions',
+    authorize('admin','super_admin'),
+
   commonValidators.id('id'),
   handleValidationErrors,
   adminController.getUserSessions
@@ -86,6 +95,8 @@ router.get(
 // GET /api/v1/admin/users/:id/events
 router.get(
   '/users/:id/events',
+    authorize('admin','super_admin'),
+
   commonValidators.id('id'),
   handleValidationErrors,
   adminController.getUserEvents

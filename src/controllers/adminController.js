@@ -330,27 +330,47 @@ const deleteUser = asyncHandler(async (req, res) => {
 
   // Use transaction to delete all associated data
   const result = await prisma.$transaction(async (prisma) => {
-    // Delete user's bookings
-    const deletedBookings = await prisma.booking.deleteMany({
+    // Get all listing IDs for this user
+    const userListings = await prisma.listing.findMany({
+      where: { host_id: id },
+      select: { id: true },
+    });
+    
+    const listingIds = userListings.map(l => l.id);
+
+    let deletedBookingsCount = 0;
+    
+    // Delete bookings on user's listings (as host) - using listing_id
+    if (listingIds.length > 0) {
+      const deletedHostBookings = await prisma.booking.deleteMany({
+        where: {
+          listing_id: {
+            in: listingIds,
+          },
+        },
+      });
+      deletedBookingsCount += deletedHostBookings.count;
+    }
+
+    // Delete bookings where user is the guest - using user_id
+    const deletedGuestBookings = await prisma.booking.deleteMany({
       where: {
-        OR: [
-          { user_id: id },
-          { listing: { user_id: id } },
-        ],
+        user_id: id,
       },
     });
+    deletedBookingsCount += deletedGuestBookings.count;
 
-    // Delete user's listings
+    // Delete user's listings - using host_id
     const deletedListings = await prisma.listing.deleteMany({
-      where: { user_id: id },
+      where: { host_id: id },
     });
 
-    // Delete user's sessions
+    // Delete user's sessions - using user_id
     await prisma.userSession.deleteMany({
       where: { user_id: id },
     });
 
-    // Delete user's events
+    // Delete user's events - using user_id
     await prisma.userEvent.deleteMany({
       where: { user_id: id },
     });
@@ -363,7 +383,7 @@ const deleteUser = asyncHandler(async (req, res) => {
     return {
       user: deletedUser,
       listings: deletedListings.count,
-      bookings: deletedBookings.count,
+      bookings: deletedBookingsCount,
     };
   });
 
