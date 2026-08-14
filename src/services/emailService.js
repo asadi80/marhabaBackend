@@ -144,7 +144,7 @@ class EmailService {
   }
 
   async sendAdminWelcomeEmail(email, name, role) {
-    const loginUrl = process.env.BASE_URL || "https://mar-haba.ly";
+    const loginUrl = process.env.DASHBOARD_URL || "https://dashboard.dmar-haba.ly";
 
     const roleLabel =
       role === "super_admin"

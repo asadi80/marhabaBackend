@@ -120,7 +120,7 @@ const verifyEmail = asyncHandler(async (req, res) => {
 
     if (!token) {
       return res.redirect(
-        `${process.env.NEXTAUTH_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token`
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token`
       );
     }
 
@@ -130,18 +130,18 @@ const verifyEmail = asyncHandler(async (req, res) => {
     // Check if there was an error
     if (result.error) {
       return res.redirect(
-        `${process.env.NEXTAUTH_URL || "https://mar-haba.ly"}/verification-result?error=${result.error}`
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=${result.error}`
       );
     }
 
     // Success - redirect with verified status
-    const redirectUrl = `${process.env.NEXTAUTH_URL || "https://mar-haba.ly"}/verification-result?verified=true&role=${result.user.role}`;
+    const redirectUrl = `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?verified=true&role=${result.user.role}`;
     return res.redirect(redirectUrl);
     
   } catch (error) {
     console.error("Email verification error:", error);
     return res.redirect(
-      `${process.env.NEXTAUTH_URL || "https://mar-haba.ly"}/verification-result?error=server-error`
+      `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=server-error`
     );
   }
 });
