@@ -20,16 +20,14 @@ class AuthService {
 
   // Generate JWT tokens
   generateTokens(userId) {
-    const accessToken = jwt.sign(
-      { id: userId },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRE || "30d" }
-    );
+    const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRE || "30d",
+    });
 
     const refreshToken = jwt.sign(
       { id: userId },
       process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_REFRESH_EXPIRE || "7d" }
+      { expiresIn: process.env.JWT_REFRESH_EXPIRE || "7d" },
     );
 
     return { accessToken, refreshToken };
@@ -67,7 +65,7 @@ class AuthService {
         phone_number,
       });
       throw new Error(
-        "All fields are required: name, email, password, phone_number"
+        "All fields are required: name, email, password, phone_number",
       );
     }
 
@@ -130,7 +128,7 @@ class AuthService {
         const emailResult = await emailService.sendVerificationEmail(
           email,
           name,
-          verificationToken
+          verificationToken,
         );
 
         if (emailResult.success) {
@@ -149,7 +147,7 @@ class AuthService {
       // Wait before retry
       if (attempt < 3) {
         console.log(`⏳ Waiting 2 seconds before retry...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     }
 
@@ -187,35 +185,82 @@ class AuthService {
 
   // Login user
   async login(email, password, deviceInfo = {}) {
-    console.log("🔐 Login attempt:", { email });
+  console.log("🔐 Login attempt:", { email });
 
-    // Normalize email
-    const normalizedEmail = email.trim().toLowerCase();
+  // Normalize email
+  const normalizedEmail = email.trim().toLowerCase();
 
-    // ─── Find user ─────────────────────────────────────────────
-    const user = await prisma.user.findUnique({
-      where: { email: normalizedEmail },
-    });
+  // ─── Find user ─────────────────────────────────────────────
+  const user = await prisma.user.findUnique({
+    where: { email: normalizedEmail },
+  });
 
-    if (!user) {
-      console.log("❌ User not found:", normalizedEmail);
-      throw new Error("User not found");
+  if (!user) {
+    console.log("❌ User not found:", normalizedEmail);
+    throw new Error("User not found");
+  }
+
+  // ─── Password check FIRST (security best practice) ────────
+  const isMatch = await this.comparePassword(password, user.password_hash);
+  if (!isMatch) {
+    console.log("❌ Invalid password:", normalizedEmail);
+    throw new Error("Invalid credentials");
+  }
+
+  // ─── Email verification check (after password) ─────────────
+  if (!user.email_verified) {
+    console.log("❌ Email not verified:", normalizedEmail);
+    
+    // Check if token is expired or doesn't exist
+    const tokenExpired = !user.email_verification_token || 
+                        (user.email_verification_expires && 
+                         new Date(user.email_verification_expires) < new Date());
+    
+    let newToken = user.email_verification_token;
+    let newExpiry = user.email_verification_expires;
+    
+    // Generate new token if expired or doesn't exist
+    if (tokenExpired) {
+      newToken = generateToken();
+      newExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          email_verification_token: newToken,
+          email_verification_expires: newExpiry,
+        },
+      });
+      console.log("🔄 Generated new verification token for:", normalizedEmail);
     }
-
-    // ─── Email verification check ─────────────────────────────
-    if (!user.email_verified) {
-      console.log("❌ Email not verified:", normalizedEmail);
-      throw new Error("Please verify your email address before logging in.");
+    
+    // Send verification email
+    try {
+      await emailService.sendVerificationEmail(
+        user.email,
+        user.name,
+        newToken
+      );
+      console.log("✅ Verification email sent to:", normalizedEmail);
+    } catch (error) {
+      console.error("❌ Failed to send verification email:", error.message);
     }
+    
+    // Return specific error with user data for frontend
+    const error = new Error("Please verify your email address before logging in");
+    error.code = "EMAIL_NOT_VERIFIED";
+    error.userData = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      token: newToken,
+      tokenExpired: tokenExpired,
+      tokenExpiry: newExpiry,
+    };
+    throw error;
+  }
 
-    // ─── Password check ────────────────────────────────────────
-    const isMatch = await this.comparePassword(password, user.password_hash);
-    if (!isMatch) {
-      console.log("❌ Invalid password:", normalizedEmail);
-      throw new Error("Invalid credentials");
-    }
-
-    console.log("✅ Login successful:", normalizedEmail);
+  console.log("✅ Login successful:", normalizedEmail);
 
     // ─── Host logic ────────────────────────────────────────────
     let loginMessage = "Login successful";
@@ -311,7 +356,7 @@ class AuthService {
           requiresIdUpload,
           isHostApproved,
         },
-        3600
+        3600,
       );
     } catch (error) {
       console.error("❌ Failed to cache user:", error.message);
@@ -378,7 +423,7 @@ class AuthService {
   // Verify email - UPDATED with redirect-friendly response
   async verifyEmail(token) {
     if (!token) {
-      return { error: 'invalid-token' };
+      return { error: "invalid-token" };
     }
 
     // Find user with valid token
@@ -392,12 +437,12 @@ class AuthService {
     });
 
     if (!user) {
-      return { error: 'invalid-expired' };
+      return { error: "invalid-expired" };
     }
 
     // If email already verified
     if (user.email_verified) {
-      return { error: 'already-verified' };
+      return { error: "already-verified" };
     }
 
     // Determine new status based on role
@@ -545,7 +590,10 @@ class AuthService {
       select: { password_hash: true },
     });
 
-    const isMatch = await this.comparePassword(currentPassword, user.password_hash);
+    const isMatch = await this.comparePassword(
+      currentPassword,
+      user.password_hash,
+    );
     if (!isMatch) {
       throw new Error("Current password is incorrect");
     }
@@ -571,6 +619,236 @@ class AuthService {
     return { message: "Password changed successfully" };
   }
 
+  // Resend email verification
+async resendVerificationEmail(email) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    if (user.email_verified) {
+      throw new Error("Email is already verified");
+    }
+
+    // Check if there's a valid token that hasn't expired
+    const hasValidToken = user.email_verification_token && 
+                         user.email_verification_expires && 
+                         new Date(user.email_verification_expires) > new Date();
+
+    // If token is expired or doesn't exist, generate new one
+    if (!hasValidToken) {
+      const verificationToken = generateToken();
+      const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          email_verification_token: verificationToken,
+          email_verification_expires: verificationExpires,
+        },
+      });
+
+      // Send new verification email
+      const emailResult = await emailService.sendVerificationEmail(
+        user.email,
+        user.name,
+        verificationToken
+      );
+
+      if (!emailResult.success) {
+        throw new Error(emailResult.error || "Failed to send verification email");
+      }
+
+      return {
+        message: "New verification email sent successfully",
+        tokenExpiry: verificationExpires,
+      };
+    }
+
+    // Token is still valid, resend the same token
+    const emailResult = await emailService.sendVerificationEmail(
+      user.email,
+      user.name,
+      user.email_verification_token
+    );
+
+    if (!emailResult.success) {
+      throw new Error(emailResult.error || "Failed to send verification email");
+    }
+
+    return {
+      message: "Verification email resent successfully",
+      tokenExpiry: user.email_verification_expires,
+    };
+  }
+
+   // Check if user needs verification (for login flow)
+  async checkVerificationStatus(email) {
+    const normalizedEmail = email.trim().toLowerCase();
+    
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: {
+        id: true,
+        email: true,
+        email_verified: true,
+        email_verification_token: true,
+        email_verification_expires: true,
+        name: true,
+      },
+    });
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // Check if token is expired and needs regeneration
+    const isTokenExpired = user.email_verification_expires && 
+                          new Date(user.email_verification_expires) < new Date();
+
+    return {
+      email_verified: user.email_verified,
+      needs_verification: !user.email_verified,
+      token_expired: isTokenExpired,
+      token: user.email_verification_token,
+      token_expiry: user.email_verification_expires,
+      email: user.email,
+      name: user.name,
+    };
+  }
+
+  // Generate new verification token (for expired tokens)
+  async generateNewVerificationToken(userId) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    if (user.email_verified) {
+      throw new Error("Email is already verified");
+    }
+
+    // Generate new token
+    const verificationToken = generateToken();
+    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        email_verification_token: verificationToken,
+        email_verification_expires: verificationExpires,
+      },
+    });
+
+    // Send verification email
+    const emailResult = await emailService.sendVerificationEmail(
+      user.email,
+      user.name,
+      verificationToken
+    );
+
+    if (!emailResult.success) {
+      throw new Error(emailResult.error || "Failed to send verification email");
+    }
+
+    return {
+      message: "New verification token generated and email sent",
+      tokenExpiry: verificationExpires,
+    };
+  }
+
+    // Update verifyEmail method to check token expiration more gracefully
+  async verifyEmail(token) {
+    if (!token) {
+      return { error: "invalid-token", message: "No verification token provided" };
+    }
+
+    // Check if token exists and is not expired
+    const user = await prisma.user.findFirst({
+      where: {
+        email_verification_token: token,
+      },
+    });
+
+    if (!user) {
+      return { 
+        error: "invalid-token", 
+        message: "Invalid verification token" 
+      };
+    }
+
+    // Check if token is expired
+    if (user.email_verification_expires && 
+        new Date(user.email_verification_expires) < new Date()) {
+      return { 
+        error: "token-expired", 
+        message: "Verification token has expired",
+        email: user.email,
+        needsNewToken: true
+      };
+    }
+
+    // If email already verified
+    if (user.email_verified) {
+      return { 
+        error: "already-verified", 
+        message: "Email is already verified",
+        email: user.email
+      };
+    }
+
+    // Determine new status based on role
+    let newStatus = user.status;
+    if (user.role === "user") {
+      newStatus = USER_STATUS.ACTIVE;
+    }
+    // For hosts, keep as pending until admin approval
+
+    // Update user - mark email as verified
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        email_verified: true,
+        email_verification_token: null,
+        email_verification_expires: null,
+        status: newStatus,
+      },
+    });
+
+    // Clear cache
+    await redisHelpers.del(`user:${user.id}`);
+
+    // Log verification event
+    try {
+      await prisma.userEvent.create({
+        data: {
+          user_id: user.id,
+          event_type: "email_verified",
+          metadata: {
+            timestamp: new Date().toISOString(),
+          },
+        },
+      });
+    } catch (error) {
+      console.error("❌ Failed to log email verification:", error.message);
+    }
+
+    // Return success with user data
+    const { password_hash, ...userWithoutPassword } = updatedUser;
+    return { 
+      success: true, 
+      user: userWithoutPassword,
+      message: "Email verified successfully"
+    };
+  }
   // Create host profile
   async createHostProfile(userId, hostData) {
     const user = await prisma.user.findUnique({

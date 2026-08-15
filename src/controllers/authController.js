@@ -1,7 +1,7 @@
 // src/controllers/authController.js
-const authService = require('../services/authService');
-const { asyncHandler } = require('../middleware/errorHandler');
-const { maskSensitiveData } = require('../utils/helpers');
+const authService = require("../services/authService");
+const { asyncHandler } = require("../middleware/errorHandler");
+const { maskSensitiveData } = require("../utils/helpers");
 
 // @desc    Register user
 // @route   POST /api/v1/auth/register
@@ -9,41 +9,41 @@ const { maskSensitiveData } = require('../utils/helpers');
 const register = asyncHandler(async (req, res) => {
   console.log("📝 Registration request received");
   console.log("  Body:", req.body);
-  console.log("  Headers:", req.headers['content-type']);
-  
+  console.log("  Headers:", req.headers["content-type"]);
+
   const userData = req.body;
-  
+
   // Validate required fields
-  const required = ['name', 'email', 'password', 'phone_number'];
-  const missing = required.filter(field => !userData[field]);
-  
+  const required = ["name", "email", "password", "phone_number"];
+  const missing = required.filter((field) => !userData[field]);
+
   if (missing.length > 0) {
     return res.status(400).json({
       success: false,
-      message: `Missing required fields: ${missing.join(', ')}`,
-      errors: missing.map(field => ({
+      message: `Missing required fields: ${missing.join(", ")}`,
+      errors: missing.map((field) => ({
         field,
-        message: `${field} is required`
-      }))
+        message: `${field} is required`,
+      })),
     });
   }
-  
+
   try {
     const result = await authService.register(userData);
-    
+
     res.status(201).json({
       success: true,
-      message: 'User registered successfully. Please verify your email.',
+      message: "User registered successfully. Please verify your email.",
       data: {
         user: maskSensitiveData(result.user),
         tokens: result.tokens,
       },
     });
   } catch (error) {
-    console.error('❌ Registration service error:', error);
+    console.error("❌ Registration service error:", error);
     res.status(400).json({
       success: false,
-      message: error.message || 'Registration failed',
+      message: error.message || "Registration failed",
     });
   }
 });
@@ -53,28 +53,51 @@ const register = asyncHandler(async (req, res) => {
 // @access  Public
 const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
-  
+
   // Parse device info from headers
   const deviceInfo = {
-    ip: req.ip || req.headers['x-forwarded-for']?.split(',')[0] || null,
-    userAgent: req.headers['user-agent'] || null,
-    device: req.headers['x-device'] || 'desktop',
-    browser: req.headers['x-browser'] || 'unknown',
-    os: req.headers['x-os'] || 'unknown',
+    ip: req.ip || req.headers["x-forwarded-for"]?.split(",")[0] || null,
+    userAgent: req.headers["user-agent"] || null,
+    device: req.headers["x-device"] || "desktop",
+    browser: req.headers["x-browser"] || "unknown",
+    os: req.headers["x-os"] || "unknown",
   };
 
-  const result = await authService.login(email, password, deviceInfo);
+  try {
+    const result = await authService.login(email, password, deviceInfo);
 
-  res.status(200).json({
-    success: true,
-    message: result.user.loginMessage || 'Login successful',
-    data: {
-      user: maskSensitiveData(result.user),
-      tokens: result.tokens,
-      requiresIdUpload: result.user.requiresIdUpload || false,
-      isHostApproved: result.user.isHostApproved !== undefined ? result.user.isHostApproved : true,
-    },
-  });
+    res.status(200).json({
+      success: true,
+      message: result.user.loginMessage || "Login successful",
+      data: {
+        user: maskSensitiveData(result.user),
+        tokens: result.tokens,
+        requiresIdUpload: result.user.requiresIdUpload || false,
+        isHostApproved:
+          result.user.isHostApproved !== undefined
+            ? result.user.isHostApproved
+            : true,
+      },
+    });
+  } catch (error) {
+    // Check if it's a verification error
+    if (error.code === "EMAIL_NOT_VERIFIED") {
+      return res.status(403).json({
+        success: false,
+        code: "EMAIL_NOT_VERIFIED",
+        message: error.message,
+        userData: error.userData,
+        // Generate a link to resend page with email pre-filled
+        resendLink: `/resend-verification?email=${encodeURIComponent(error.userData.email)}`,
+      });
+    }
+
+    // Handle other errors
+    return res.status(401).json({
+      success: false,
+      message: error.message || "Login failed",
+    });
+  }
 });
 
 // @desc    Logout user
@@ -86,7 +109,7 @@ const logout = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    message: 'Logged out successfully',
+    message: "Logged out successfully",
   });
 });
 
@@ -99,7 +122,7 @@ const refreshToken = asyncHandler(async (req, res) => {
   if (!refresh_token) {
     return res.status(400).json({
       success: false,
-      message: 'Refresh token is required',
+      message: "Refresh token is required",
     });
   }
 
@@ -119,15 +142,13 @@ const verifyEmail = asyncHandler(async (req, res) => {
     console.log("🔍 VERIFY EMAIL REQUEST");
     console.log("URL:", req.originalUrl);
     console.log("Query:", req.query);
-    console.log("Token:", req.query.token);
 
     const { token } = req.query;
 
     if (!token) {
       console.log("❌ No verification token received");
-
       return res.redirect(
-        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token`
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token`,
       );
     }
 
@@ -137,24 +158,128 @@ const verifyEmail = asyncHandler(async (req, res) => {
 
     console.log("🔍 Verification result:", result);
 
-    if (result.error) {
+    // Handle different error cases
+    if (result.error === "token-expired") {
       return res.redirect(
-        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=${encodeURIComponent(result.error)}`
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?status=expired&email=${encodeURIComponent(result.email || "")}&message=Your verification link has expired. Please request a new one.`,
       );
     }
 
-    const redirectUrl =
-      `${process.env.FRONTEND_URL || "https://mar-haba.ly"}` +
-      `/verification-result?verified=true&role=${encodeURIComponent(result.user.role)}`;
+    if (result.error === "already-verified") {
+      return res.redirect(
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?status=already-verified&email=${encodeURIComponent(result.email || "")}`,
+      );
+    }
 
-    return res.redirect(redirectUrl);
+    if (result.error === "invalid-token") {
+      return res.redirect(
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token&message=Invalid verification link. Please request a new one.`,
+      );
+    }
 
+    // Success - email verified
+    if (result.success) {
+      const redirectUrl =
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}` +
+        `/verification-result?status=success&email=${encodeURIComponent(result.user.email)}&role=${encodeURIComponent(result.user.role)}`;
+
+      return res.redirect(redirectUrl);
+    }
+
+    // Fallback
+    return res.redirect(
+      `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=unknown`,
+    );
   } catch (error) {
     console.error("❌ Email verification error:", error);
-
     return res.redirect(
-      `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=server-error`
+      `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=server-error&message=${encodeURIComponent(error.message)}`,
     );
+  }
+});
+
+// @desc    Resend verification email
+// @route   POST /api/v1/auth/resend-verification
+// @access  Public
+const resendVerification = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({
+      success: false,
+      message: "Email is required",
+    });
+  }
+
+  try {
+    const result = await authService.resendVerificationEmail(email);
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      data: {
+        tokenExpiry: result.tokenExpiry,
+        email: email,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Resend verification error:", error.message);
+
+    if (error.message === "User not found") {
+      return res.status(404).json({
+        success: false,
+        message: "No account found with this email address.",
+      });
+    }
+
+    if (error.message === "Email is already verified") {
+      return res.status(400).json({
+        success: false,
+        message: "This email is already verified. You can login directly.",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "Failed to resend verification email. Please try again.",
+    });
+  }
+});
+
+// Check verification status endpoint
+const checkVerificationStatus = asyncHandler(async (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return res.status(400).json({
+      success: false,
+      message: "Email is required",
+    });
+  }
+
+  try {
+    const status = await authService.checkVerificationStatus(email);
+
+    return res.status(200).json({
+      success: true,
+      data: status,
+    });
+  } catch (error) {
+    console.error("❌ Check verification status error:", error.message);
+
+    if (error.message === "User not found") {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to check verification status",
+    });
   }
 });
 
@@ -167,7 +292,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
   if (!email) {
     return res.status(400).json({
       success: false,
-      message: 'Email is required',
+      message: "Email is required",
     });
   }
 
@@ -189,7 +314,7 @@ const resetPassword = asyncHandler(async (req, res) => {
   if (!password) {
     return res.status(400).json({
       success: false,
-      message: 'Password is required',
+      message: "Password is required",
     });
   }
 
@@ -221,7 +346,7 @@ const updateMe = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    message: 'Profile updated successfully',
+    message: "Profile updated successfully",
     data: { user: maskSensitiveData(user) },
   });
 });
@@ -235,14 +360,14 @@ const changePassword = asyncHandler(async (req, res) => {
   if (!current_password || !new_password) {
     return res.status(400).json({
       success: false,
-      message: 'Current password and new password are required',
+      message: "Current password and new password are required",
     });
   }
 
   const result = await authService.changePassword(
     req.user.id,
     current_password,
-    new_password
+    new_password,
   );
 
   res.status(200).json({
@@ -257,6 +382,8 @@ module.exports = {
   logout,
   refreshToken,
   verifyEmail,
+  resendVerification,
+  checkVerificationStatus,
   forgotPassword,
   resetPassword,
   getMe,
