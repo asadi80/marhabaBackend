@@ -148,7 +148,7 @@ const verifyEmail = asyncHandler(async (req, res) => {
     if (!token) {
       console.log("❌ No verification token received");
       return res.redirect(
-        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token`,
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token`
       );
     }
 
@@ -161,39 +161,43 @@ const verifyEmail = asyncHandler(async (req, res) => {
     // Handle different error cases
     if (result.error === "token-expired") {
       return res.redirect(
-        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?status=expired&email=${encodeURIComponent(result.email || "")}&message=Your verification link has expired. Please request a new one.`,
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?status=expired&email=${encodeURIComponent(result.user?.email || '')}&message=Your verification link has expired. Please request a new one.`
       );
     }
-
+    
     if (result.error === "already-verified") {
+      // Redirect to login with already verified message
       return res.redirect(
-        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?status=already-verified&email=${encodeURIComponent(result.email || "")}`,
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?status=already-verified&email=${encodeURIComponent(result.user?.email || '')}&message=Email is already verified. You can login now.`
       );
     }
-
+    
     if (result.error === "invalid-token") {
       return res.redirect(
-        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token&message=Invalid verification link. Please request a new one.`,
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token&message=Invalid verification link. Please request a new one.`
       );
     }
 
-    // Success - email verified
+    // ✅ SUCCESS - Email verified!
     if (result.success) {
+      // Redirect to verification result page with success status
+      // The result page will show success message and auto-redirect to login
       const redirectUrl =
         `${process.env.FRONTEND_URL || "https://mar-haba.ly"}` +
-        `/verification-result?status=success&email=${encodeURIComponent(result.user.email)}&role=${encodeURIComponent(result.user.role)}`;
-
+        `/verification-result?status=success&email=${encodeURIComponent(result.user.email)}&name=${encodeURIComponent(result.user.name)}&role=${encodeURIComponent(result.user.role)}&redirect=/login`;
+      
       return res.redirect(redirectUrl);
     }
 
     // Fallback
     return res.redirect(
-      `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=unknown`,
+      `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=unknown`
     );
+
   } catch (error) {
     console.error("❌ Email verification error:", error);
     return res.redirect(
-      `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=server-error&message=${encodeURIComponent(error.message)}`,
+      `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=server-error&message=${encodeURIComponent(error.message)}`
     );
   }
 });

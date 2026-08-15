@@ -183,7 +183,7 @@ class AuthService {
     };
   }
 
-  // Login user
+  //----------------------------- Login user -----------------------------
   async login(email, password, deviceInfo = {}) {
   console.log("🔐 Login attempt:", { email });
 
@@ -421,55 +421,100 @@ class AuthService {
   }
 
   // Verify email - UPDATED with redirect-friendly response
-  async verifyEmail(token) {
-    if (!token) {
-      return { error: "invalid-token" };
-    }
+async verifyEmail(token) {
+  if (!token) {
+    return { error: "invalid-token", message: "No verification token provided" };
+  }
 
-    // Find user with valid token
-    const user = await prisma.user.findFirst({
-      where: {
-        email_verification_token: token,
-        email_verification_expires: {
-          gt: new Date(),
+  // Find user with the token (don't check expiry yet)
+  const user = await prisma.user.findFirst({
+    where: {
+      email_verification_token: token,
+    },
+  });
+
+  if (!user) {
+    return { 
+      error: "invalid-token", 
+      message: "Invalid verification token" 
+    };
+  }
+
+  // Check if email is already verified
+  if (user.email_verified) {
+    return { 
+      error: "already-verified", 
+      message: "Email is already verified",
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      }
+    };
+  }
+
+  // Check if token is expired
+  if (user.email_verification_expires && 
+      new Date(user.email_verification_expires) < new Date()) {
+    return { 
+      error: "token-expired", 
+      message: "Verification token has expired",
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      }
+    };
+  }
+
+  // Determine new status based on role
+  let newStatus = user.status;
+  if (user.role === "user") {
+    newStatus = USER_STATUS.ACTIVE;
+  }
+  // For hosts, keep as pending until admin approval
+
+  // Update user - mark email as verified
+  const updatedUser = await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      email_verified: true,
+      email_verification_token: null,
+      email_verification_expires: null,
+      status: newStatus,
+    },
+  });
+
+  // Clear cache
+  await redisHelpers.del(`user:${user.id}`);
+
+  // Log verification event
+  try {
+    await prisma.userEvent.create({
+      data: {
+        user_id: user.id,
+        event_type: "email_verified",
+        metadata: {
+          timestamp: new Date().toISOString(),
+          token_used: true,
         },
       },
     });
-
-    if (!user) {
-      return { error: "invalid-expired" };
-    }
-
-    // If email already verified
-    if (user.email_verified) {
-      return { error: "already-verified" };
-    }
-
-    // Determine new status based on role
-    let newStatus = user.status;
-    if (user.role === "user") {
-      newStatus = USER_STATUS.ACTIVE; // or "confirmed" based on your constants
-    }
-    // For hosts, keep as pending until admin approval
-
-    // Update user
-    const updatedUser = await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        email_verified: true,
-        email_verification_token: null,
-        email_verification_expires: null,
-        status: newStatus,
-      },
-    });
-
-    // Clear cache
-    await redisHelpers.del(`user:${user.id}`);
-
-    // Return success with user data
-    const { password_hash, ...userWithoutPassword } = updatedUser;
-    return { user: userWithoutPassword };
+  } catch (error) {
+    console.error("❌ Failed to log email verification:", error.message);
   }
+
+  // Return success with user data and login redirect info
+  const { password_hash, ...userWithoutPassword } = updatedUser;
+  return { 
+    success: true, 
+    user: userWithoutPassword,
+    message: "Email verified successfully! You can now login.",
+    redirectTo: "/login",  // Add redirect info
+  };
+}
 
   // Request password reset
   async requestPasswordReset(email) {
