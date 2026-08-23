@@ -154,13 +154,21 @@ const getUserById = asyncHandler(async (req, res) => {
 
   const user = await prisma.user.findUnique({
     where: { id },
+
     include: {
       listings: {
-        where: { is_active: true },
-        orderBy: { created_at: "desc" },
+        where: {
+          is_active: true,
+        },
+        orderBy: {
+          created_at: 'desc',
+        },
       },
+
       bookings: {
-        orderBy: { created_at: "desc" },
+        orderBy: {
+          created_at: 'desc',
+        },
         include: {
           listing: {
             select: {
@@ -171,9 +179,10 @@ const getUserById = asyncHandler(async (req, res) => {
           },
         },
       },
+
       host_subscription_payments: {
         orderBy: {
-          createdAt: "desc",
+          created_at: 'desc',
         },
       },
     },
@@ -182,16 +191,13 @@ const getUserById = asyncHandler(async (req, res) => {
   if (!user) {
     return res.status(404).json({
       success: false,
-      message: "User not found",
+      message: 'User not found',
     });
   }
 
-  // Remove sensitive data
-  const { password_hash, ...userWithoutPassword } = user;
-
   res.status(200).json({
     success: true,
-    user: userWithoutPassword,
+    user,
   });
 });
 
