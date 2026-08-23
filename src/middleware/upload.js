@@ -3,21 +3,33 @@ const path = require("path");
 const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 
-// Base upload directory
+// ─────────────────────────────────────────────
+// Upload directories
+// ─────────────────────────────────────────────
+
 const uploadBase = path.join(__dirname, "../../public/uploads");
 
-// Create folders if they don't exist
-const folders = ["listings", "ids", "payments"];
+const folders = [
+  "listings",
+  "ids",
+  "payments",
+];
 
+// Create folders automatically
 folders.forEach((folder) => {
   const folderPath = path.join(uploadBase, folder);
 
   if (!fs.existsSync(folderPath)) {
-    fs.mkdirSync(folderPath, { recursive: true });
+    fs.mkdirSync(folderPath, {
+      recursive: true,
+    });
   }
 });
 
-// Storage configuration
+// ─────────────────────────────────────────────
+// Storage
+// ─────────────────────────────────────────────
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const type = req.params.type;
@@ -26,11 +38,21 @@ const storage = multer.diskStorage({
       return cb(new Error("Invalid upload type"));
     }
 
-    cb(null, path.join(uploadBase, type));
+    const folderPath = path.join(uploadBase, type);
+
+    if (!fs.existsSync(folderPath)) {
+      fs.mkdirSync(folderPath, {
+        recursive: true,
+      });
+    }
+
+    cb(null, folderPath);
   },
 
   filename: (req, file, cb) => {
-    const extension = path.extname(file.originalname).toLowerCase();
+    const extension = path
+      .extname(file.originalname)
+      .toLowerCase();
 
     const filename = `${uuidv4()}${extension}`;
 
@@ -38,23 +60,69 @@ const storage = multer.diskStorage({
   },
 });
 
-// Allowed image types
+// ─────────────────────────────────────────────
+// Allowed MIME types
+// ─────────────────────────────────────────────
+
 const allowedMimeTypes = [
   "image/jpeg",
   "image/png",
   "image/webp",
+  "image/heic",
+  "image/heif",
+  "application/pdf",
 ];
 
+// ─────────────────────────────────────────────
+// Allowed extensions
+// ─────────────────────────────────────────────
+
+const allowedExtensions = [
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".heic",
+  ".heif",
+  ".pdf",
+];
+
+// ─────────────────────────────────────────────
 // File filter
+// ─────────────────────────────────────────────
+
 const fileFilter = (req, file, cb) => {
-  if (allowedMimeTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error("Only JPG, PNG, and WebP images are allowed"));
+  const extension = path
+    .extname(file.originalname)
+    .toLowerCase();
+
+  // Some browsers report HEIC/HEIF as:
+  // application/octet-stream
+  //
+  // Therefore we check BOTH MIME type
+  // and file extension.
+
+  const validMimeType =
+    allowedMimeTypes.includes(file.mimetype);
+
+  const validExtension =
+    allowedExtensions.includes(extension);
+
+  if (validMimeType || validExtension) {
+    return cb(null, true);
   }
+
+  return cb(
+    new Error(
+      "Only JPG, JPEG, PNG, WebP, HEIC, HEIF, and PDF files are allowed"
+    )
+  );
 };
 
+// ─────────────────────────────────────────────
 // Multer configuration
+// ─────────────────────────────────────────────
+
 const upload = multer({
   storage,
   fileFilter,

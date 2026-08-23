@@ -1,16 +1,34 @@
 const express = require("express");
-const path = require("path");
 const upload = require("../middleware/upload");
 
 const router = express.Router();
 
-// Upload one image
-router.post("/:type", upload.single("image"), (req, res) => {
+// Allowed upload types
+const allowedTypes = [
+  "listings",
+  "ids",
+  "payments",
+];
+
+// Upload one file
+router.post("/:type", (req, res, next) => {
+  const { type } = req.params;
+
+  if (!allowedTypes.includes(type)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid upload type",
+      allowedTypes,
+    });
+  }
+
+  next();
+}, upload.single("image"), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: "No image uploaded",
+        message: "No file uploaded",
       });
     }
 
@@ -18,16 +36,19 @@ router.post("/:type", upload.single("image"), (req, res) => {
 
     const baseUrl = `${req.protocol}://${req.get("host")}`;
 
-    const url = `${baseUrl}/uploads/${type}/${req.file.filename}`;
+    const url =
+      `${baseUrl}/uploads/${type}/${req.file.filename}`;
 
     return res.status(201).json({
       success: true,
-      message: "Image uploaded successfully",
+      message: "File uploaded successfully",
+
       file: {
         filename: req.file.filename,
         originalName: req.file.originalname,
         size: req.file.size,
         mimetype: req.file.mimetype,
+        type,
         url,
       },
     });
@@ -36,7 +57,7 @@ router.post("/:type", upload.single("image"), (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Image upload failed",
+      message: "File upload failed",
     });
   }
 });
