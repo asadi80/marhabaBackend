@@ -27,32 +27,47 @@ app.use(
   }),
 );
 
-// ✅ FIXED: CORS Configuration - Remove the problematic app.options('*')
+//  CORS Configuration 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
+    // Allow requests with no origin (mobile apps, curl, Postman, etc.)
+    if (!origin) {
+      return callback(null, true);
+    }
 
-    // List of allowed origins
     const allowedOrigins = [
-      "http://localhost:5173",
-      "http://localhost:3000",
       "https://mar-haba.ly",
       "https://www.mar-haba.ly",
       process.env.FRONTEND_URL,
     ].filter(Boolean);
 
-    // Check if origin is allowed
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log("❌ Blocked origin:", origin);
-      callback(new Error("Not allowed by CORS"));
+    // Allow any localhost / 127.0.0.1 port during development
+    const isLocalhost =
+      /^http:\/\/localhost:\d+$/.test(origin) ||
+      /^http:\/\/127\.0\.0\.1:\d+$/.test(origin);
+
+    // Allow production frontend or localhost
+    if (isLocalhost || allowedOrigins.includes(origin)) {
+      return callback(null, true);
     }
+
+    console.log("❌ Blocked origin:", origin);
+    return callback(new Error("Not allowed by CORS"));
   },
+
   credentials: true,
+
   optionsSuccessStatus: 200,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+
+  methods: [
+    "GET",
+    "POST",
+    "PUT",
+    "DELETE",
+    "PATCH",
+    "OPTIONS",
+  ],
+
   allowedHeaders: [
     "Content-Type",
     "Authorization",
