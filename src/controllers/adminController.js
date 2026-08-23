@@ -171,7 +171,7 @@ const getUserById = asyncHandler(async (req, res) => {
           },
         },
       },
-      hostSubscriptionPayments: {
+      host_subscription_payments: {
         orderBy: {
           createdAt: "desc",
         },
