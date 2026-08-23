@@ -1,17 +1,17 @@
 // src/controllers/adminController.js
-const { prisma } = require('../config/database');
-const { redisHelpers } = require('../config/redis');
-const { asyncHandler } = require('../middleware/errorHandler');
-const { USER_STATUS, ROLES } = require('../utils/constants');
-const emailService = require('../services/emailService');
-const bcrypt = require('bcryptjs');
+const { prisma } = require("../config/database");
+const { redisHelpers } = require("../config/redis");
+const { asyncHandler } = require("../middleware/errorHandler");
+const { USER_STATUS, ROLES } = require("../utils/constants");
+const emailService = require("../services/emailService");
+const bcrypt = require("bcryptjs");
 
 // @desc    Get dashboard statistics
 // @route   GET /api/v1/admin/stats
 // @access  Private (Admin/Super Admin)
 const getStats = asyncHandler(async (req, res) => {
   // Check cache first
-  const cachedStats = await redisHelpers.get('admin:stats');
+  const cachedStats = await redisHelpers.get("admin:stats");
   if (cachedStats) {
     return res.status(200).json({
       success: true,
@@ -30,21 +30,21 @@ const getStats = asyncHandler(async (req, res) => {
     pendingHosts,
     totalRevenue,
   ] = await Promise.all([
-    prisma.user.count({ where: { role: 'user' } }),
-    prisma.user.count({ where: { role: 'host' } }),
-    prisma.user.count({ where: { role: 'admin' } }),
-    prisma.user.count({ where: { role: 'super_admin' } }),
+    prisma.user.count({ where: { role: "user" } }),
+    prisma.user.count({ where: { role: "host" } }),
+    prisma.user.count({ where: { role: "admin" } }),
+    prisma.user.count({ where: { role: "super_admin" } }),
     prisma.listing.count({ where: { is_active: true } }),
     prisma.booking.count(),
     prisma.user.count({
       where: {
-        role: 'host',
-        status: 'pending'
-      }
+        role: "host",
+        status: "pending",
+      },
     }),
     prisma.booking.aggregate({
       _sum: { total_price: true },
-      where: { status: 'confirmed' }
+      where: { status: "confirmed" },
     }),
   ]);
 
@@ -60,7 +60,7 @@ const getStats = asyncHandler(async (req, res) => {
   };
 
   // Cache stats for 5 minutes
-  await redisHelpers.set('admin:stats', stats, 300);
+  await redisHelpers.set("admin:stats", stats, 300);
 
   res.status(200).json({
     success: true,
@@ -83,9 +83,9 @@ const getUsers = asyncHandler(async (req, res) => {
   if (status) filter.status = status;
   if (search) {
     filter.OR = [
-      { name: { contains: search, mode: 'insensitive' } },
-      { email: { contains: search, mode: 'insensitive' } },
-      { phone_number: { contains: search, mode: 'insensitive' } },
+      { name: { contains: search, mode: "insensitive" } },
+      { email: { contains: search, mode: "insensitive" } },
+      { phone_number: { contains: search, mode: "insensitive" } },
     ];
   }
 
@@ -113,7 +113,7 @@ const getUsers = asyncHandler(async (req, res) => {
           },
         },
       },
-      orderBy: { created_at: 'desc' },
+      orderBy: { created_at: "desc" },
       skip,
       take,
     }),
@@ -122,10 +122,10 @@ const getUsers = asyncHandler(async (req, res) => {
 
   // Group users by role for the sidebar counts
   const usersByRole = await Promise.all([
-    prisma.user.count({ where: { role: 'user' } }),
-    prisma.user.count({ where: { role: 'host' } }),
-    prisma.user.count({ where: { role: 'admin' } }),
-    prisma.user.count({ where: { role: 'super_admin' } }),
+    prisma.user.count({ where: { role: "user" } }),
+    prisma.user.count({ where: { role: "host" } }),
+    prisma.user.count({ where: { role: "admin" } }),
+    prisma.user.count({ where: { role: "super_admin" } }),
   ]);
 
   res.status(200).json({
@@ -157,10 +157,10 @@ const getUserById = asyncHandler(async (req, res) => {
     include: {
       listings: {
         where: { is_active: true },
-        orderBy: { created_at: 'desc' },
+        orderBy: { created_at: "desc" },
       },
       bookings: {
-        orderBy: { created_at: 'desc' },
+        orderBy: { created_at: "desc" },
         include: {
           listing: {
             select: {
@@ -171,13 +171,18 @@ const getUserById = asyncHandler(async (req, res) => {
           },
         },
       },
+      hostSubscriptionPayments: {
+        orderBy: {
+          createdAt: "desc",
+        },
+      },
     },
   });
 
   if (!user) {
     return res.status(404).json({
       success: false,
-      message: 'User not found',
+      message: "User not found",
     });
   }
 
@@ -205,15 +210,19 @@ const updateUser = asyncHandler(async (req, res) => {
   if (!existingUser) {
     return res.status(404).json({
       success: false,
-      message: 'User not found',
+      message: "User not found",
     });
   }
 
   // Check if trying to change role of super_admin (only super_admin can do this)
-  if (role && existingUser.role === 'super_admin' && req.user.role !== 'super_admin') {
+  if (
+    role &&
+    existingUser.role === "super_admin" &&
+    req.user.role !== "super_admin"
+  ) {
     return res.status(403).json({
       success: false,
-      message: 'Only super admins can modify super admin accounts',
+      message: "Only super admins can modify super admin accounts",
     });
   }
 
@@ -222,12 +231,12 @@ const updateUser = asyncHandler(async (req, res) => {
   if (name) updateData.name = name;
   if (email) updateData.email = email.toLowerCase();
   if (phone_number) updateData.phone_number = phone_number;
-  if (role && req.user.role === 'super_admin') updateData.role = role;
+  if (role && req.user.role === "super_admin") updateData.role = role;
   if (status) updateData.status = status;
   if (status_reason !== undefined) updateData.status_reason = status_reason;
 
   // If host is being confirmed, set confirmation date and 6-month expiry
-  if (status === 'confirmed' && existingUser.role === 'host') {
+  if (status === "confirmed" && existingUser.role === "host") {
     const now = new Date();
     const expiryDate = new Date(now);
     expiryDate.setMonth(expiryDate.getMonth() + 6);
@@ -242,16 +251,16 @@ const updateUser = asyncHandler(async (req, res) => {
     // Send confirmation email
     await emailService.sendHostConfirmationEmail(
       existingUser.email,
-      existingUser.name
+      existingUser.name,
     );
   }
 
   // If host is being suspended, send notification
-  if (status === 'suspended' && existingUser.role === 'host') {
+  if (status === "suspended" && existingUser.role === "host") {
     await emailService.sendHostSuspensionEmail(
       existingUser.email,
       existingUser.name,
-      status_reason || 'Violation of terms of service'
+      status_reason || "Violation of terms of service",
     );
   }
 
@@ -277,11 +286,11 @@ const updateUser = asyncHandler(async (req, res) => {
 
   // Clear cache
   await redisHelpers.del(`user:${id}`);
-  await redisHelpers.del('admin:stats');
+  await redisHelpers.del("admin:stats");
 
   res.status(200).json({
     success: true,
-    message: 'User updated successfully',
+    message: "User updated successfully",
     user: updatedUser,
   });
 });
@@ -305,15 +314,15 @@ const deleteUser = asyncHandler(async (req, res) => {
   if (!user) {
     return res.status(404).json({
       success: false,
-      message: 'User not found',
+      message: "User not found",
     });
   }
 
   // Prevent deleting super_admin unless current user is super_admin
-  if (user.role === 'super_admin' && req.user.role !== 'super_admin') {
+  if (user.role === "super_admin" && req.user.role !== "super_admin") {
     return res.status(403).json({
       success: false,
-      message: 'Only super admins can delete super admin accounts',
+      message: "Only super admins can delete super admin accounts",
     });
   }
 
@@ -321,7 +330,7 @@ const deleteUser = asyncHandler(async (req, res) => {
   if (user.id === req.user.id) {
     return res.status(400).json({
       success: false,
-      message: 'You cannot delete your own account',
+      message: "You cannot delete your own account",
     });
   }
 
@@ -332,11 +341,11 @@ const deleteUser = asyncHandler(async (req, res) => {
       where: { host_id: id },
       select: { id: true },
     });
-    
-    const listingIds = userListings.map(l => l.id);
+
+    const listingIds = userListings.map((l) => l.id);
 
     let deletedBookingsCount = 0;
-    
+
     // Delete bookings on user's listings (as host)
     if (listingIds.length > 0) {
       const deletedHostBookings = await prisma.booking.deleteMany({
@@ -386,11 +395,11 @@ const deleteUser = asyncHandler(async (req, res) => {
 
   // Clear cache
   await redisHelpers.del(`user:${id}`);
-  await redisHelpers.del('admin:stats');
+  await redisHelpers.del("admin:stats");
 
   res.status(200).json({
     success: true,
-    message: 'User deleted successfully',
+    message: "User deleted successfully",
     deletedCount: {
       user: 1,
       listings: result.listings,
@@ -403,13 +412,13 @@ const deleteUser = asyncHandler(async (req, res) => {
 // @route   POST /api/v1/dashboard/createAdmin
 // @access  Private (Super Admin only)
 const createAdmin = asyncHandler(async (req, res) => {
-  const { name, email, password, phone_number, role = 'admin' } = req.body;
+  const { name, email, password, phone_number, role = "admin" } = req.body;
 
   // Only super_admin can create new admins
-  if (req.user.role !== 'super_admin') {
+  if (req.user.role !== "super_admin") {
     return res.status(403).json({
       success: false,
-      message: 'Only super admins can create new admin accounts',
+      message: "Only super admins can create new admin accounts",
     });
   }
 
@@ -421,7 +430,7 @@ const createAdmin = asyncHandler(async (req, res) => {
   if (existingUser) {
     return res.status(400).json({
       success: false,
-      message: 'User already exists with this email',
+      message: "User already exists with this email",
     });
   }
 
@@ -437,7 +446,7 @@ const createAdmin = asyncHandler(async (req, res) => {
       password_hash: hashedPassword,
       phone_number: phone_number.trim(),
       role: role,
-      status: 'confirmed',
+      status: "confirmed",
       email_verified: true,
       user_details: {
         preferences: {},
@@ -450,13 +459,13 @@ const createAdmin = asyncHandler(async (req, res) => {
   const emailResult = await emailService.sendAdminWelcomeEmail(
     email,
     name,
-    role
+    role,
   );
 
   if (!emailResult.success) {
     console.error(
       "⚠️ Admin created, but welcome email failed:",
-      emailResult.error
+      emailResult.error,
     );
   }
   const { password_hash, ...userWithoutPassword } = user;
@@ -486,15 +495,15 @@ const deleteDashboardUser = asyncHandler(async (req, res) => {
   if (!user) {
     return res.status(404).json({
       success: false,
-      message: 'User not found',
+      message: "User not found",
     });
   }
 
   // Prevent deleting super_admin unless current user is super_admin
-  if (user.role === 'super_admin' && req.user.role !== 'super_admin') {
+  if (user.role === "super_admin" && req.user.role !== "super_admin") {
     return res.status(403).json({
       success: false,
-      message: 'Only super admins can delete super admin accounts',
+      message: "Only super admins can delete super admin accounts",
     });
   }
 
@@ -502,7 +511,7 @@ const deleteDashboardUser = asyncHandler(async (req, res) => {
   if (user.id === req.user.id) {
     return res.status(400).json({
       success: false,
-      message: 'You cannot delete your own account',
+      message: "You cannot delete your own account",
     });
   }
 
@@ -513,11 +522,11 @@ const deleteDashboardUser = asyncHandler(async (req, res) => {
       where: { host_id: id },
       select: { id: true },
     });
-    
-    const listingIds = userListings.map(l => l.id);
+
+    const listingIds = userListings.map((l) => l.id);
 
     let deletedBookingsCount = 0;
-    
+
     // Delete bookings on user's listings (as host)
     if (listingIds.length > 0) {
       const deletedHostBookings = await prisma.booking.deleteMany({
@@ -567,11 +576,11 @@ const deleteDashboardUser = asyncHandler(async (req, res) => {
 
   // Clear cache
   await redisHelpers.del(`user:${id}`);
-  await redisHelpers.del('admin:stats');
+  await redisHelpers.del("admin:stats");
 
   res.status(200).json({
     success: true,
-    message: 'User deleted successfully',
+    message: "User deleted successfully",
     deletedCount: {
       user: 1,
       listings: result.listings,
@@ -586,11 +595,11 @@ const getUserListings = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   const listings = await prisma.listing.findMany({
-    where: { host_id: id },  // Changed from user_id to host_id
-    orderBy: { created_at: 'desc' },
+    where: { host_id: id }, // Changed from user_id to host_id
+    orderBy: { created_at: "desc" },
     include: {
       bookings: {
-        where: { status: 'confirmed' },
+        where: { status: "confirmed" },
         select: {
           id: true,
           check_in: true,
@@ -616,14 +625,14 @@ const getUserBookings = asyncHandler(async (req, res) => {
   // Bookings as guest
   const bookingsAsGuest = await prisma.booking.findMany({
     where: { user_id: id },
-    orderBy: { created_at: 'desc' },
+    orderBy: { created_at: "desc" },
     include: {
       listing: {
         select: {
           id: true,
           title: true,
           images: true,
-          host_id: true,  // Changed from user_id to host_id
+          host_id: true, // Changed from user_id to host_id
         },
       },
     },
@@ -633,10 +642,10 @@ const getUserBookings = asyncHandler(async (req, res) => {
   const bookingsAsHost = await prisma.booking.findMany({
     where: {
       listing: {
-        host_id: id,  // Changed from user_id to host_id
+        host_id: id, // Changed from user_id to host_id
       },
     },
-    orderBy: { created_at: 'desc' },
+    orderBy: { created_at: "desc" },
     include: {
       listing: {
         select: {
@@ -670,7 +679,7 @@ const getUserSessions = asyncHandler(async (req, res) => {
 
   const sessions = await prisma.userSession.findMany({
     where: { user_id: id },
-    orderBy: { logged_in_at: 'desc' },
+    orderBy: { logged_in_at: "desc" },
   });
 
   res.status(200).json({
@@ -687,7 +696,7 @@ const getUserEvents = asyncHandler(async (req, res) => {
 
   const events = await prisma.userEvent.findMany({
     where: { user_id: id },
-    orderBy: { created_at: 'desc' },
+    orderBy: { created_at: "desc" },
     take: 100,
   });
 
@@ -703,8 +712,8 @@ const getUserEvents = asyncHandler(async (req, res) => {
 const getPendingHosts = asyncHandler(async (req, res) => {
   const pendingHosts = await prisma.user.findMany({
     where: {
-      role: 'host',
-      status: 'pending',
+      role: "host",
+      status: "pending",
     },
     select: {
       id: true,
@@ -720,7 +729,7 @@ const getPendingHosts = asyncHandler(async (req, res) => {
         },
       },
     },
-    orderBy: { created_at: 'asc' },
+    orderBy: { created_at: "asc" },
   });
 
   res.status(200).json({
@@ -742,21 +751,21 @@ const approveHost = asyncHandler(async (req, res) => {
   if (!user) {
     return res.status(404).json({
       success: false,
-      message: 'User not found',
+      message: "User not found",
     });
   }
 
-  if (user.role !== 'host') {
+  if (user.role !== "host") {
     return res.status(400).json({
       success: false,
-      message: 'User is not a host',
+      message: "User is not a host",
     });
   }
 
-  if (user.status === 'confirmed') {
+  if (user.status === "confirmed") {
     return res.status(400).json({
       success: false,
-      message: 'Host is already confirmed',
+      message: "Host is already confirmed",
     });
   }
 
@@ -767,14 +776,14 @@ const approveHost = asyncHandler(async (req, res) => {
   const updatedUser = await prisma.user.update({
     where: { id },
     data: {
-      status: 'confirmed',
+      status: "confirmed",
       host_details: {
         ...user.host_details,
         verified: true,
         confirmed_at: now,
         expires_at: expiryDate,
       },
-      status_reason: 'Host account approved',
+      status_reason: "Host account approved",
     },
   });
 
@@ -782,11 +791,11 @@ const approveHost = asyncHandler(async (req, res) => {
   await emailService.sendHostApprovalEmail(user.email, user.name);
 
   await redisHelpers.del(`user:${id}`);
-  await redisHelpers.del('admin:stats');
+  await redisHelpers.del("admin:stats");
 
   res.status(200).json({
     success: true,
-    message: 'Host approved successfully',
+    message: "Host approved successfully",
     user: {
       id: updatedUser.id,
       name: updatedUser.name,
@@ -809,22 +818,22 @@ const rejectHost = asyncHandler(async (req, res) => {
   if (!user) {
     return res.status(404).json({
       success: false,
-      message: 'User not found',
+      message: "User not found",
     });
   }
 
-  if (user.role !== 'host') {
+  if (user.role !== "host") {
     return res.status(400).json({
       success: false,
-      message: 'User is not a host',
+      message: "User is not a host",
     });
   }
 
   await prisma.user.update({
     where: { id },
     data: {
-      status: 'suspended',
-      status_reason: reason || 'Host application rejected',
+      status: "suspended",
+      status_reason: reason || "Host application rejected",
     },
   });
 
@@ -832,11 +841,11 @@ const rejectHost = asyncHandler(async (req, res) => {
   await emailService.sendHostRejectionEmail(user.email, user.name, reason);
 
   await redisHelpers.del(`user:${id}`);
-  await redisHelpers.del('admin:stats');
+  await redisHelpers.del("admin:stats");
 
   res.status(200).json({
     success: true,
-    message: 'Host rejected successfully',
+    message: "Host rejected successfully",
   });
 });
 
@@ -853,9 +862,9 @@ const getAllListings = asyncHandler(async (req, res) => {
   if (status) filter.status = status;
   if (search) {
     filter.OR = [
-      { title: { contains: search, mode: 'insensitive' } },
-      { description: { contains: search, mode: 'insensitive' } },
-      { location: { contains: search, mode: 'insensitive' } },
+      { title: { contains: search, mode: "insensitive" } },
+      { description: { contains: search, mode: "insensitive" } },
+      { location: { contains: search, mode: "insensitive" } },
     ];
   }
 
@@ -863,7 +872,8 @@ const getAllListings = asyncHandler(async (req, res) => {
     prisma.listing.findMany({
       where: filter,
       include: {
-        host: {  // Changed from 'user' to 'host'
+        host: {
+          // Changed from 'user' to 'host'
           select: {
             id: true,
             name: true,
@@ -871,7 +881,7 @@ const getAllListings = asyncHandler(async (req, res) => {
           },
         },
         bookings: {
-          where: { status: 'confirmed' },
+          where: { status: "confirmed" },
           select: {
             id: true,
             check_in: true,
@@ -884,7 +894,7 @@ const getAllListings = asyncHandler(async (req, res) => {
           },
         },
       },
-      orderBy: { created_at: 'desc' },
+      orderBy: { created_at: "desc" },
       skip,
       take,
     }),
@@ -919,7 +929,7 @@ const deleteListing = asyncHandler(async (req, res) => {
   if (!listing) {
     return res.status(404).json({
       success: false,
-      message: 'Listing not found',
+      message: "Listing not found",
     });
   }
 
@@ -936,11 +946,11 @@ const deleteListing = asyncHandler(async (req, res) => {
     });
   });
 
-  await redisHelpers.del('admin:stats');
+  await redisHelpers.del("admin:stats");
 
   res.status(200).json({
     success: true,
-    message: 'Listing deleted successfully',
+    message: "Listing deleted successfully",
     deletedCount: {
       listing: 1,
       bookings: listing.bookings.length,
@@ -964,7 +974,7 @@ const getUserReport = asyncHandler(async (req, res) => {
 
   const [users, totalUsers] = await Promise.all([
     prisma.user.groupBy({
-      by: ['role', 'status'],
+      by: ["role", "status"],
       _count: {
         id: true,
       },
@@ -1006,21 +1016,21 @@ const getUserReport = asyncHandler(async (req, res) => {
 // @route   GET /api/v1/admin/reports/revenue
 // @access  Private (Admin/Super Admin)
 const getRevenueReport = asyncHandler(async (req, res) => {
-  const { period = 'month' } = req.query;
+  const { period = "month" } = req.query;
 
   let startDate;
   const now = new Date();
 
   switch (period) {
-    case 'week':
+    case "week":
       startDate = new Date(now);
       startDate.setDate(startDate.getDate() - 7);
       break;
-    case 'month':
+    case "month":
       startDate = new Date(now);
       startDate.setMonth(startDate.getMonth() - 1);
       break;
-    case 'year':
+    case "year":
       startDate = new Date(now);
       startDate.setFullYear(startDate.getFullYear() - 1);
       break;
@@ -1038,7 +1048,7 @@ const getRevenueReport = asyncHandler(async (req, res) => {
         id: true,
       },
       where: {
-        status: 'confirmed',
+        status: "confirmed",
         created_at: {
           gte: startDate,
         },
