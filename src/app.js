@@ -5,6 +5,7 @@ const compression = require("compression");
 const morgan = require("morgan");
 const { generalLimiter, apiLimiter } = require("./middleware/rateLimiter");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
+const uploadRoutes = require("./routes/uploadRoutes");
 
 // Import routes
 const authRoutes = require("./routes/authRoutes");
@@ -71,7 +72,8 @@ app.use(compression());
 // Body parsing
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-
+// Uploaded files
+app.use("/uploads", express.static("public/uploads"));
 // Logging
 if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
@@ -99,7 +101,7 @@ app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/listings", listingRoutes);
 app.use("/api/v1/bookings", bookingRoutes);
 app.use("/api/v1/dashboard", AdminRoutes);
-
+app.use("/api/v1/uploads", uploadRoutes);
 // Root route
 app.get("/", (req, res) => {
   res.status(200).json({

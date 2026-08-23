@@ -10,7 +10,6 @@
     "prisma:push": "prisma db push",
     "prisma:seed": "node prisma/seed.js",
     "prisma:studio": "prisma studio"
-   
   },
   "keywords": [],
   "author": "",
@@ -29,9 +28,10 @@
     "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.11.0",
+    "multer": "^2.2.0",
     "nodemailer": "^9.0.4",
-    "uuid": "^14.0.1",
-    "pm2": "^7.0.3"
+    "pm2": "^7.0.3",
+    "uuid": "^14.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.14",
