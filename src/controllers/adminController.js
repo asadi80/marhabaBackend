@@ -241,59 +241,121 @@ const updateUser = asyncHandler(async (req, res) => {
   if (status) updateData.status = status;
   if (status_reason !== undefined) updateData.status_reason = status_reason;
 
-  // If host is being confirmed, set confirmation date and 6-month expiry
- // If host is being confirmed, set confirmation date and 6-month expiry
-if (status === "confirmed" && existingUser.role === "host") {
-  const now = new Date();
+  // --- Handle HOST status changes ---
+  if (existingUser.role === "host") {
+    const previousStatus = existingUser.status;
 
-  const expiryDate = new Date(now);
-  expiryDate.setMonth(expiryDate.getMonth() + 6);
-
-  const daysUntilExpiry = Math.ceil(
-    (expiryDate.getTime() - now.getTime()) /
-      (1000 * 60 * 60 * 24)
-  );
-
-  updateData.host_details = {
-    ...(existingUser.host_details || {}),
-    confirmed_at: now,
-    expires_at: expiryDate,
-    verified: true,
-  };
-
-  // Send confirmation email
-  try {
-    const emailResult =
-      await emailService.sendHostConfirmationEmail(
-        existingUser,
-        expiryDate,
-        daysUntilExpiry
+    // CASE 1: Host is being confirmed (pending -> confirmed)
+    if (status === "confirmed" && previousStatus !== "confirmed") {
+      const now = new Date();
+      const expiryDate = new Date(now);
+      expiryDate.setMonth(expiryDate.getMonth() + 6);
+      const daysUntilExpiry = Math.ceil(
+        (expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
       );
 
-    if (!emailResult.success) {
-      console.error(
-        "❌ Host confirmation email failed:",
-        emailResult.error
-      );
-    } else {
-      console.log(
-        `✅ Host confirmation email sent to ${existingUser.email}`
-      );
+      updateData.host_details = {
+        ...(existingUser.host_details || {}),
+        confirmed_at: now,
+        expires_at: expiryDate,
+        verified: true,
+      };
+
+      // Send confirmation email
+      try {
+        const emailResult = await emailService.sendHostConfirmationEmail(
+          existingUser,
+          expiryDate,
+          daysUntilExpiry
+        );
+
+        if (!emailResult.success) {
+          console.error("❌ Host confirmation email failed:", emailResult.error);
+        } else {
+          console.log(`✅ Host confirmation email sent to ${existingUser.email}`);
+        }
+      } catch (emailError) {
+        console.error("❌ Host confirmation email exception:", emailError);
+      }
     }
-  } catch (emailError) {
-    console.error(
-      "❌ Host confirmation email exception:",
-      emailError
-    );
-  }
-}
-  // If host is being suspended, send notification
-  if (status === "suspended" && existingUser.role === "host") {
-    await emailService.sendHostSuspensionEmail(
-      existingUser.email,
-      existingUser.name,
-      status_reason || "Violation of terms of service",
-    );
+
+    // CASE 2: Host is being set to pending (new application or resubmission)
+    else if (status === "pending" && previousStatus !== "pending") {
+      // Update host details to pending state
+      updateData.host_details = {
+        ...(existingUser.host_details || {}),
+        verified: false,
+        confirmed_at: null,
+        expires_at: null,
+        pending_since: new Date(),
+      };
+
+      // Get admin emails (you can fetch from database or use env)
+      const adminEmails = process.env.ADMIN_EMAILS 
+        ? process.env.ADMIN_EMAILS.split(',') 
+        : [];
+
+      try {
+        const emailResult = await emailService.sendHostPendingApprovalEmail(
+          existingUser,
+          adminEmails
+        );
+
+        if (!emailResult.success) {
+          console.error("❌ Host pending approval email failed:", emailResult.error);
+        } else {
+          console.log(`✅ Host pending approval email sent to ${existingUser.email}`);
+        }
+      } catch (emailError) {
+        console.error("❌ Host pending approval email exception:", emailError);
+      }
+    }
+
+    // CASE 3: Host is being suspended (confirmed or pending -> suspended)
+    else if (status === "suspended" && previousStatus !== "suspended") {
+      try {
+        const emailResult = await emailService.sendHostSuspensionEmail(
+          existingUser.email,
+          existingUser.name,
+          status_reason || "Violation of terms of service"
+        );
+
+        if (!emailResult.success) {
+          console.error("❌ Host suspension email failed:", emailResult.error);
+        } else {
+          console.log(`✅ Host suspension email sent to ${existingUser.email}`);
+        }
+      } catch (emailError) {
+        console.error("❌ Host suspension email exception:", emailError);
+      }
+    }
+
+    // CASE 4: Host is being reactivated (suspended -> pending or confirmed)
+    else if (previousStatus === "suspended" && status !== "suspended") {
+      try {
+        const emailResult = await emailService.sendHostReactivationEmail(
+          existingUser,
+          status_reason || "Account has been reactivated"
+        );
+
+        if (!emailResult.success) {
+          console.error("❌ Host reactivation email failed:", emailResult.error);
+        } else {
+          console.log(`✅ Host reactivation email sent to ${existingUser.email}`);
+        }
+      } catch (emailError) {
+        console.error("❌ Host reactivation email exception:", emailError);
+      }
+    }
+
+    // CASE 5: Status changed from pending to something else without confirmation
+    else if (previousStatus === "pending" && status !== "pending" && status !== "confirmed" && status !== "suspended") {
+      // Handle other status changes from pending
+      updateData.host_details = {
+        ...(existingUser.host_details || {}),
+        pending_since: null,
+      };
+    }
   }
 
   const updatedUser = await prisma.user.update({
