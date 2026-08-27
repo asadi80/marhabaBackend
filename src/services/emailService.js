@@ -318,7 +318,7 @@ Marhaba Team
    */
   async sendHostConfirmationEmail(host, expiryDate, daysUntilExpiry) {
     const formattedExpiryDate = this.formatDateForEmail(expiryDate);
-    const appUrl =  process.env.BASE_URL || 'https://api.mar-haba.ly';
+    const appUrl =  process.env.BASE_URL || 'https://mar-haba.ly';
     
     const emailContent = {
       subject: `Welcome as a Host! / مرحباً بك كمضيف! - Marhaba`,
