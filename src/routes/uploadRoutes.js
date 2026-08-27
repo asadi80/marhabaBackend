@@ -46,7 +46,10 @@ router.post(
 
       // Save ID image URL to authenticated user
       if (type === "ids") {
-        await prisma.user.update({
+        console.log("👤 Authenticated user ID:", req.user.id);
+        console.log("🖼️ Saving ID image URL:", url);
+
+        const updatedUser = await prisma.user.update({
           where: {
             id: req.user.id,
           },
@@ -55,7 +58,13 @@ router.post(
               push: url,
             },
           },
+          select: {
+            id: true,
+            id_images: true,
+          },
         });
+
+        console.log("✅ User after ID image update:", updatedUser);
       }
 
       return res.status(201).json({
@@ -79,7 +88,7 @@ router.post(
         message: "File upload failed",
       });
     }
-  }
+  },
 );
 
 module.exports = router;
