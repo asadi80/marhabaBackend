@@ -26,4 +26,10 @@ router.put('/me', protect, userValidators.updateProfile, handleValidationErrors,
 router.post('/change-password', protect, authController.changePassword);
 router.post('/logout', protect, authController.logout);
 
+router.post(
+  '/me/id-image',
+  protect,
+  authController.addIdImage
+);
+
 module.exports = router;

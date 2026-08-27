@@ -380,6 +380,41 @@ const changePassword = asyncHandler(async (req, res) => {
   });
 });
 
+const addIdImage = asyncHandler(async (req, res) => {
+  if (!req.body.url) {
+    return res.status(400).json({
+      success: false,
+      message: 'Image URL is required',
+    });
+  }
+
+  const { url } = req.body;
+
+  const user = await prisma.user.update({
+    where: {
+      id: req.user.id,
+    },
+    data: {
+      id_images: {
+        push: url,
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone_number: true,
+      id_images: true,
+    },
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: 'ID image added successfully',
+    user,
+  });
+});
+
 module.exports = {
   register,
   login,
@@ -393,4 +428,5 @@ module.exports = {
   getMe,
   updateMe,
   changePassword,
+  addIdImage,
 };
