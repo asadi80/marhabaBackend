@@ -1,24 +1,17 @@
 const express = require("express");
 const upload = require("../middleware/upload");
-const prisma = require("../config/database");
-
-// Use YOUR existing authentication middleware here
+const { prisma } = require("../config/database");
 const { protect } = require("../middleware/auth");
 
 const router = express.Router();
 
-const allowedTypes = [
-  "listings",
-  "ids",
-  "payments",
-];
+const allowedTypes = ["listings", "ids", "payments"];
 
 router.post(
   "/:type",
-
-  // Make sure req.user is available
   protect,
 
+  // Validate upload type
   (req, res, next) => {
     const { type } = req.params;
 
@@ -33,6 +26,7 @@ router.post(
     next();
   },
 
+  // Receive multipart/form-data field named "image"
   upload.single("image"),
 
   async (req, res) => {
@@ -44,23 +38,18 @@ router.post(
         });
       }
 
-      const type = req.params.type;
+      const { type } = req.params;
 
       const baseUrl = `${req.protocol}://${req.get("host")}`;
 
-      const url =
-        `${baseUrl}/uploads/${type}/${req.file.filename}`;
+      const url = `${baseUrl}/uploads/${type}/${req.file.filename}`;
 
-      // ─────────────────────────────────────
-      // ID IMAGE
-      // ─────────────────────────────────────
-
+      // Save ID image URL to authenticated user
       if (type === "ids") {
         await prisma.user.update({
           where: {
             id: req.user.id,
           },
-
           data: {
             id_images: {
               push: url,
@@ -82,7 +71,6 @@ router.post(
           url,
         },
       });
-
     } catch (error) {
       console.error("Upload error:", error);
 
