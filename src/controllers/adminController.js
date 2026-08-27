@@ -202,7 +202,7 @@ const getUserById = asyncHandler(async (req, res) => {
 });
 
 // @desc    Update user
-// @route   PUT /api/v1/admin/users/:id
+// @route   PUT /api/v1/dashboard/users/:id
 // @access  Private (Admin/Super Admin)
 const updateUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
