@@ -242,25 +242,51 @@ const updateUser = asyncHandler(async (req, res) => {
   if (status_reason !== undefined) updateData.status_reason = status_reason;
 
   // If host is being confirmed, set confirmation date and 6-month expiry
-  if (status === "confirmed" && existingUser.role === "host") {
-    const now = new Date();
-    const expiryDate = new Date(now);
-    expiryDate.setMonth(expiryDate.getMonth() + 6);
+ // If host is being confirmed, set confirmation date and 6-month expiry
+if (status === "confirmed" && existingUser.role === "host") {
+  const now = new Date();
 
-    updateData.host_details = {
-      ...existingUser.host_details,
-      confirmed_at: now,
-      expires_at: expiryDate,
-      verified: true,
-    };
+  const expiryDate = new Date(now);
+  expiryDate.setMonth(expiryDate.getMonth() + 6);
 
-    // Send confirmation email
-    await emailService.sendHostConfirmationEmail(
-      existingUser.email,
-      existingUser.name,
+  const daysUntilExpiry = Math.ceil(
+    (expiryDate.getTime() - now.getTime()) /
+      (1000 * 60 * 60 * 24)
+  );
+
+  updateData.host_details = {
+    ...(existingUser.host_details || {}),
+    confirmed_at: now,
+    expires_at: expiryDate,
+    verified: true,
+  };
+
+  // Send confirmation email
+  try {
+    const emailResult =
+      await emailService.sendHostConfirmationEmail(
+        existingUser,
+        expiryDate,
+        daysUntilExpiry
+      );
+
+    if (!emailResult.success) {
+      console.error(
+        "❌ Host confirmation email failed:",
+        emailResult.error
+      );
+    } else {
+      console.log(
+        `✅ Host confirmation email sent to ${existingUser.email}`
+      );
+    }
+  } catch (emailError) {
+    console.error(
+      "❌ Host confirmation email exception:",
+      emailError
     );
   }
-
+}
   // If host is being suspended, send notification
   if (status === "suspended" && existingUser.role === "host") {
     await emailService.sendHostSuspensionEmail(
