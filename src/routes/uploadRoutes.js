@@ -1,6 +1,6 @@
 const express = require("express");
 const upload = require("../middleware/upload");
-const prisma = require("../../prisma/schema.prisma");
+const prisma = require("../config/database");
 
 // Use YOUR existing authentication middleware here
 const { protect } = require("../middleware/auth");
