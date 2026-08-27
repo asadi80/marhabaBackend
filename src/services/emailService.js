@@ -17,6 +17,7 @@ class EmailService {
     console.log('  Secure:', this.secure);
     console.log('  User:', this.user ? 'SET' : 'NOT SET');
     console.log('  Pass:', this.pass ? 'SET' : 'NOT SET');
+    console.log('  From:', this.from);
   }
 
   async sendEmail({ to, subject, text, html }) {
@@ -25,11 +26,21 @@ class EmailService {
       return {
         success: false,
         error: 'Email configuration missing',
+        details: 'EMAIL_USER or EMAIL_PASS environment variables are not set'
+      };
+    }
+
+    if (!to) {
+      console.error('❌ Recipient email missing');
+      return {
+        success: false,
+        error: 'Recipient email missing'
       };
     }
 
     try {
       console.log(`📧 Sending email to: ${to}`);
+      console.log(`📧 Subject: ${subject}`);
 
       const transporter = nodemailer.createTransport({
         host: this.host,
@@ -50,8 +61,17 @@ class EmailService {
       });
 
       // Verify connection
-      await transporter.verify();
-      console.log('✅ SMTP connection verified');
+      try {
+        await transporter.verify();
+        console.log('✅ SMTP connection verified');
+      } catch (verifyError) {
+        console.error('❌ SMTP verification failed:', verifyError.message);
+        return {
+          success: false,
+          error: 'SMTP verification failed',
+          details: verifyError.message
+        };
+      }
 
       const info = await transporter.sendMail({
         from: `"Marhaba" <${this.from}>`,
@@ -62,19 +82,25 @@ class EmailService {
       });
 
       console.log(`✅ Email sent: ${info.messageId}`);
+      console.log(`✅ Response:`, info.response);
 
       return {
         success: true,
         messageId: info.messageId,
+        response: info.response,
       };
     } catch (error) {
       console.error('❌ Email error:', error.message);
       if (error.code) console.error('  Code:', error.code);
       if (error.command) console.error('  Command:', error.command);
+      if (error.response) console.error('  Response:', error.response);
+      
       return {
         success: false,
         error: error.message,
         code: error.code,
+        command: error.command,
+        response: error.response,
       };
     }
   }
@@ -317,8 +343,33 @@ Marhaba Team
    * @returns {Promise<Object>} Email send result
    */
   async sendHostConfirmationEmail(host, expiryDate, daysUntilExpiry) {
+    console.log('📧 Attempting to send host confirmation email to:', host?.email);
+    console.log('📧 Host data:', { name: host?.name, email: host?.email });
+    console.log('📧 Expiry date:', expiryDate);
+    console.log('📧 Days until expiry:', daysUntilExpiry);
+
+    // Validate host object
+    if (!host) {
+      console.error('❌ Host object is missing');
+      return {
+        success: false,
+        error: 'Host object is missing'
+      };
+    }
+
+    if (!host.email) {
+      console.error('❌ Host email is missing');
+      return {
+        success: false,
+        error: 'Host email is missing'
+      };
+    }
+
     const formattedExpiryDate = this.formatDateForEmail(expiryDate);
-    const appUrl =  process.env.BASE_URL || 'https://api.mar-haba.ly';
+    const appUrl = process.env.BASE_URL || 'https://api.mar-haba.ly';
+    
+    console.log('📧 Formatted expiry date:', formattedExpiryDate);
+    console.log('📧 App URL:', appUrl);
     
     const emailContent = {
       subject: `Welcome as a Host! / مرحباً بك كمضيف! - Marhaba`,
@@ -332,12 +383,12 @@ Marhaba Team
   <!-- English Section -->
   <div style="margin-bottom: 30px;">
     <h2 style="color: #4F46E5;">🎉 Welcome as a Host!</h2>
-    <p>Dear ${host.name},</p>
+    <p>Dear ${host.name || 'Host'},</p>
     <p><strong>Congratulations!</strong> Your host account has been <strong>confirmed</strong> by the Marhaba admin team.</p>
     <div style="background: #e0e7ff; padding: 20px; border-radius: 12px; margin: 20px 0;">
       <h3>✨ Host Account Details:</h3>
       <p><strong>📅 Expiry Date:</strong> ${formattedExpiryDate}</p>
-      <p><strong>🔔 Days Remaining:</strong> ${daysUntilExpiry} days</p>
+      <p><strong>🔔 Days Remaining:</strong> ${daysUntilExpiry || 'N/A'} days</p>
       <p style="margin-top: 10px; font-size: 14px; color: #4F46E5;">
         ⚠️ Please note: Your host status will expire after 6 months. You will need to renew your subscription to continue hosting.
       </p>
@@ -355,12 +406,12 @@ Marhaba Team
   <!-- Arabic Section -->
   <div style="direction: rtl; text-align: right;">
     <h2 style="color: #4F46E5;">🎉 مرحباً بك كمضيف!</h2>
-    <p>عزيزي ${host.name}،</p>
+    <p>عزيزي ${host.name || 'المضيف'},</p>
     <p><strong>تهانينا!</strong> تم <strong>تأكيد</strong> حسابك كمضيف من قبل فريق إدارة مرحبا.</p>
     <div style="background: #e0e7ff; padding: 20px; border-radius: 12px; margin: 20px 0;">
       <h3>✨ تفاصيل حساب المضيف:</h3>
       <p><strong>📅 تاريخ الانتهاء:</strong> ${formattedExpiryDate}</p>
-      <p><strong>🔔 الأيام المتبقية:</strong> ${daysUntilExpiry} يوم</p>
+      <p><strong>🔔 الأيام المتبقية:</strong> ${daysUntilExpiry || 'غير متاح'} يوم</p>
       <p style="margin-top: 10px; font-size: 14px; color: #4F46E5;">
         ⚠️ يرجى ملاحظة: صلاحية حساب المضيف تنتهي بعد 6 أشهر. ستحتاج إلى تجديد اشتراكك للاستمرار في الاستضافة.
       </p>
@@ -376,12 +427,17 @@ Marhaba Team
       `
     };
 
-    return this.sendEmail({
+    console.log('📧 Sending email with subject:', emailContent.subject);
+    
+    const result = await this.sendEmail({
       to: host.email,
       subject: emailContent.subject,
       text: emailContent.text,
       html: emailContent.html,
     });
+
+    console.log('📧 Email send result:', result);
+    return result;
   }
 
   /**
@@ -393,7 +449,7 @@ Marhaba Team
    */
   async sendHostExpiryReminderEmail(host, expiryDate, daysUntilExpiry) {
     const formattedExpiryDate = this.formatDateForEmail(expiryDate);
-    const appUrl = process.env.NEXTAUTH_URL || process.env.BASE_URL || 'http://localhost:3000';
+    const appUrl = process.env.BASE_URL || 'https://api.mar-haba.ly';
     
     const emailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px; background: #f7f6f2;">
@@ -452,7 +508,7 @@ Marhaba Team
    * @returns {Promise<Object>} Email send result
    */
   async sendHostPaymentReceivedEmail(host, payment) {
-    const appUrl = process.env.NEXTAUTH_URL || process.env.BASE_URL || 'http://localhost:3000';
+    const appUrl = process.env.BASE_URL || 'https://api.mar-haba.ly';
     const formattedDate = this.formatDateForEmail(payment.created_at);
     
     const emailHtml = `
@@ -518,7 +574,7 @@ Marhaba Team
    */
   async sendHostPaymentApprovedEmail(host, payment, expiryDate) {
     const formattedExpiryDate = this.formatDateForEmail(expiryDate);
-    const appUrl = process.env.NEXTAUTH_URL || process.env.BASE_URL || 'http://localhost:3000';
+    const appUrl = process.env.BASE_URL || 'https://api.mar-haba.ly';
     
     const emailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px; background: #f7f6f2;">
@@ -580,7 +636,7 @@ Marhaba Team
    * @returns {Promise<Object>} Email send result
    */
   async sendHostPaymentRejectedEmail(host, payment, reason) {
-    const appUrl = process.env.NEXTAUTH_URL || process.env.BASE_URL || 'http://localhost:3000';
+    const appUrl = process.env.BASE_URL || 'https://api.mar-haba.ly';
     
     const emailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px; background: #f7f6f2;">
