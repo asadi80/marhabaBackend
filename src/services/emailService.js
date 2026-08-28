@@ -1,30 +1,30 @@
-const nodemailer = require('nodemailer');
-console.log('🔧 EmailService file loaded');
+const nodemailer = require("nodemailer");
+console.log("🔧 EmailService file loaded");
 
 class EmailService {
   constructor() {
     // Use the same configuration that works in Next.js
     this.host = process.env.EMAIL_HOST || "65.109.38.16";
     this.port = parseInt(process.env.EMAIL_PORT) || 465;
-    this.secure = process.env.EMAIL_SECURE === 'true' || true;
+    this.secure = process.env.EMAIL_SECURE === "true" || true;
     this.user = process.env.EMAIL_USER;
     this.pass = process.env.EMAIL_PASS;
     this.from = process.env.EMAIL_FROM || process.env.EMAIL_USER;
 
-    console.log('📧 Email Configuration:');
-    console.log('  Host:', this.host);
-    console.log('  Port:', this.port);
-    console.log('  Secure:', this.secure);
-    console.log('  User:', this.user ? 'SET' : 'NOT SET');
-    console.log('  Pass:', this.pass ? 'SET' : 'NOT SET');
+    console.log("📧 Email Configuration:");
+    console.log("  Host:", this.host);
+    console.log("  Port:", this.port);
+    console.log("  Secure:", this.secure);
+    console.log("  User:", this.user ? "SET" : "NOT SET");
+    console.log("  Pass:", this.pass ? "SET" : "NOT SET");
   }
 
   async sendEmail({ to, subject, text, html }) {
     if (!this.user || !this.pass) {
-      console.error('❌ Email configuration missing');
+      console.error("❌ Email configuration missing");
       return {
         success: false,
-        error: 'Email configuration missing',
+        error: "Email configuration missing",
       };
     }
 
@@ -41,7 +41,7 @@ class EmailService {
         },
         tls: {
           rejectUnauthorized: false,
-          servername: 'mail.mar-haba.ly', // Important for SSL
+          servername: "mail.mar-haba.ly", // Important for SSL
         },
         // Timeouts
         connectionTimeout: 10000,
@@ -51,7 +51,7 @@ class EmailService {
 
       // Verify connection
       await transporter.verify();
-      console.log('✅ SMTP connection verified');
+      console.log("✅ SMTP connection verified");
 
       const info = await transporter.sendMail({
         from: `"Marhaba" <${this.from}>`,
@@ -68,9 +68,9 @@ class EmailService {
         messageId: info.messageId,
       };
     } catch (error) {
-      console.error('❌ Email error:', error.message);
-      if (error.code) console.error('  Code:', error.code);
-      if (error.command) console.error('  Command:', error.command);
+      console.error("❌ Email error:", error.message);
+      if (error.code) console.error("  Code:", error.code);
+      if (error.command) console.error("  Command:", error.command);
       return {
         success: false,
         error: error.message,
@@ -81,12 +81,12 @@ class EmailService {
 
   // Helper function to format date for email
   formatDateForEmail(date) {
-    if (!date) return 'N/A';
+    if (!date) return "N/A";
     const d = new Date(date);
-    return d.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
+    return d.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
     });
   }
 
@@ -95,7 +95,7 @@ class EmailService {
   // ============================================================
 
   async sendVerificationEmail(email, name, token) {
-    const frontendUrl = process.env.BASE_URL || 'http://localhost:5173';
+    const frontendUrl = process.env.BASE_URL || "http://localhost:5173";
     const verificationUrl = `${frontendUrl}/api/v1/auth/verify-email?token=${token}`;
 
     const emailHtml = `
@@ -153,19 +153,19 @@ class EmailService {
 
     return this.sendEmail({
       to: email,
-      subject: "Welcome to Marhaba! Please verify your email / مرحباً بك في مرحبا! يرجى تأكيد بريدك الإلكتروني",
+      subject:
+        "Welcome to Marhaba! Please verify your email / مرحباً بك في مرحبا! يرجى تأكيد بريدك الإلكتروني",
       text: `Welcome to Marhaba! Please verify your email by clicking this link: ${verificationUrl}`,
       html: emailHtml,
     });
   }
 
   async sendAdminWelcomeEmail(email, name, role) {
-    const loginUrl = process.env.DASHBOARD_URL || "https://dashboard.dmar-haba.ly";
+    const loginUrl =
+      process.env.DASHBOARD_URL || "https://dashboard.dmar-haba.ly";
 
     const roleLabel =
-      role === "super_admin"
-        ? "Super Administrator"
-        : "Administrator";
+      role === "super_admin" ? "Super Administrator" : "Administrator";
 
     const emailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 30px;">
@@ -380,7 +380,7 @@ Marhaba Team
     <p>We regret to inform you that your ID verification has been <strong>rejected</strong>.</p>
     <div style="background: #FCEBEB; padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid #E24B4A;">
       <h3 style="color: #E24B4A;">📋 Reason:</h3>
-      <p>${reason || 'The ID document was unclear or invalid'}</p>
+      <p>${reason || "The ID document was unclear or invalid"}</p>
     </div>
     <p>Please upload a new, clear copy of your official ID document.</p>
   </div>
@@ -394,7 +394,7 @@ Marhaba Team
     <p>نأسف لإبلاغك بأن التحقق من هويتك قد تم <strong>رفضه</strong>.</p>
     <div style="background: #FCEBEB; padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid #E24B4A;">
       <h3 style="color: #E24B4A;">📋 السبب:</h3>
-      <p>${reason || 'وثيقة الهوية غير واضحة أو غير صالحة'}</p>
+      <p>${reason || "وثيقة الهوية غير واضحة أو غير صالحة"}</p>
     </div>
     <p>يرجى تحميل نسخة جديدة وواضحة من وثيقة هويتك الرسمية.</p>
   </div>
@@ -404,7 +404,7 @@ Marhaba Team
     return this.sendEmail({
       to: email,
       subject: `ID Verification Rejected / تم رفض التحقق من الهوية - Marhaba`,
-      text: `Dear ${name}, your ID verification has been rejected. Reason: ${reason || 'The ID document was unclear or invalid'}`,
+      text: `Dear ${name}, your ID verification has been rejected. Reason: ${reason || "The ID document was unclear or invalid"}`,
       html: emailHtml,
     });
   }
@@ -413,8 +413,8 @@ Marhaba Team
    * Send payment approval email
    */
   async sendPaymentApprovalEmail(email, name) {
-    const appUrl = process.env.BASE_URL || 'https://mar-haba.ly';
-    
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
+
     const emailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px; background: #f7f6f2;">
   <div style="text-align: center; margin-bottom: 20px;">
@@ -467,8 +467,8 @@ Marhaba Team
    * Send payment rejection email
    */
   async sendPaymentRejectionEmail(email, name, reason) {
-    const appUrl = process.env.BASE_URL || 'https://mar-haba.ly';
-    
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
+
     const emailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px; background: #f7f6f2;">
   <div style="text-align: center; margin-bottom: 20px;">
@@ -482,7 +482,7 @@ Marhaba Team
     <p>We regret to inform you that your payment receipt has been <strong>rejected</strong>.</p>
     <div style="background: #FCEBEB; padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid #E24B4A;">
       <h3 style="color: #E24B4A;">📋 Reason:</h3>
-      <p>${reason || 'The receipt was unclear or invalid'}</p>
+      <p>${reason || "The receipt was unclear or invalid"}</p>
     </div>
     <p>Please upload a new, clear payment receipt.</p>
     <a href="${appUrl}/host-dashboard" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
@@ -499,7 +499,7 @@ Marhaba Team
     <p>نأسف لإبلاغك بأن إيصال الدفع الخاص بك قد تم <strong>رفضه</strong>.</p>
     <div style="background: #FCEBEB; padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid #E24B4A;">
       <h3 style="color: #E24B4A;">📋 السبب:</h3>
-      <p>${reason || 'الإيصال غير واضح أو غير صالح'}</p>
+      <p>${reason || "الإيصال غير واضح أو غير صالح"}</p>
     </div>
     <p>يرجى تحميل إيصال دفع جديد وواضح.</p>
     <a href="${appUrl}/host-dashboard" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
@@ -512,7 +512,7 @@ Marhaba Team
     return this.sendEmail({
       to: email,
       subject: `Payment Rejected / تم رفض الدفع - Marhaba`,
-      text: `Dear ${name}, your payment receipt has been rejected. Reason: ${reason || 'The receipt was unclear or invalid'}`,
+      text: `Dear ${name}, your payment receipt has been rejected. Reason: ${reason || "The receipt was unclear or invalid"}`,
       html: emailHtml,
     });
   }
@@ -521,9 +521,10 @@ Marhaba Team
    * Send host pending approval notification (when host submits application)
    */
   async sendHostPendingApprovalEmail(host, adminEmails = []) {
-    const appUrl = process.env.BASE_URL || 'https://mar-haba.ly';
-    const dashboardUrl = process.env.DASHBOARD_URL || 'https://dashboard.mar-haba.ly';
-    
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
+    const dashboardUrl =
+      process.env.DASHBOARD_URL || "https://dashboard.mar-haba.ly";
+
     // Send to host
     const hostEmailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px; background: #f7f6f2;">
@@ -580,7 +581,7 @@ Marhaba Team
   <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
     <p><strong>Name:</strong> ${host.name}</p>
     <p><strong>Email:</strong> ${host.email}</p>
-    <p><strong>Phone:</strong> ${host.phone_number || 'N/A'}</p>
+    <p><strong>Phone:</strong> ${host.phone_number || "N/A"}</p>
     <p><strong>Applied:</strong> ${new Date(host.created_at).toLocaleString()}</p>
   </div>
   <a href="${dashboardUrl}/admin/users/${host.id}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
@@ -608,8 +609,8 @@ Marhaba Team
    */
   async sendHostConfirmationEmail(host, expiryDate, daysUntilExpiry) {
     const formattedExpiryDate = this.formatDateForEmail(expiryDate);
-    const appUrl = process.env.BASE_URL || 'https://mar-haba.ly';
-    
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
+
     const emailContent = {
       subject: `Welcome as a Host! / مرحباً بك كمضيف! - Marhaba`,
       text: `English: Congratulations! Your host account has been confirmed. Your hosting status is valid for 6 months until ${formattedExpiryDate}. You can now start listing your properties and accepting bookings.\n\nالعربية: تهانينا! تم تأكيد حسابك كمضيف. صلاحية حساب المضيف صالحة لمدة 6 أشهر حتى ${formattedExpiryDate}. يمكنك الآن البدء في إضافة عقاراتك واستقبال الحجوزات.`,
@@ -663,7 +664,7 @@ Marhaba Team
     </p>
   </div>
 </div>
-      `
+      `,
     };
 
     return this.sendEmail({
@@ -678,8 +679,8 @@ Marhaba Team
    * Send host suspension notification email
    */
   async sendHostSuspensionEmail(email, name, reason) {
-    const appUrl = process.env.BASE_URL || 'https://mar-haba.ly';
-    
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
+
     const emailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px; background: #f7f6f2;">
   <div style="text-align: center; margin-bottom: 20px;">
@@ -693,7 +694,7 @@ Marhaba Team
     <p>We regret to inform you that your host account has been <strong>suspended</strong>.</p>
     <div style="background: #FCEBEB; padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid #E24B4A;">
       <h3 style="color: #E24B4A;">📋 Reason:</h3>
-      <p>${reason || 'Violation of terms of service'}</p>
+      <p>${reason || "Violation of terms of service"}</p>
     </div>
     <p>Your properties are no longer visible to guests, and you cannot accept new bookings.</p>
     <p>If you believe this is a mistake, please contact our support team.</p>
@@ -711,7 +712,7 @@ Marhaba Team
     <p>نأسف لإبلاغك بأن حساب المضيف الخاص بك قد تم <strong>تعليقه</strong>.</p>
     <div style="background: #FCEBEB; padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid #E24B4A;">
       <h3 style="color: #E24B4A;">📋 السبب:</h3>
-      <p>${reason || 'انتهاك شروط الخدمة'}</p>
+      <p>${reason || "انتهاك شروط الخدمة"}</p>
     </div>
     <p>لم تعد عقاراتك مرئية للضيوف، ولا يمكنك قبول حجوزات جديدة.</p>
     <p>إذا كنت تعتقد أن هذا خطأ، يرجى الاتصال بفريق الدعم.</p>
@@ -725,7 +726,7 @@ Marhaba Team
     return this.sendEmail({
       to: email,
       subject: `Account Suspended / تم تعليق الحساب - Marhaba`,
-      text: `Dear ${name}, your host account has been suspended. Reason: ${reason || 'Violation of terms of service'}`,
+      text: `Dear ${name}, your host account has been suspended. Reason: ${reason || "Violation of terms of service"}`,
       html: emailHtml,
     });
   }
@@ -733,9 +734,9 @@ Marhaba Team
   /**
    * Send host account reactivation notification
    */
-  async sendHostReactivationEmail(host, reason = '') {
-    const appUrl = process.env.BASE_URL || 'https://mar-haba.ly';
-    
+  async sendHostReactivationEmail(host, reason = "") {
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
+
     const emailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px; background: #f7f6f2;">
   <div style="text-align: center; margin-bottom: 20px;">
@@ -750,7 +751,7 @@ Marhaba Team
     <div style="background: #EAF3DE; padding: 20px; border-radius: 12px; margin: 20px 0;">
       <h3>📋 Status Update:</h3>
       <p>Your account is now active again.</p>
-      ${reason ? `<p><strong>Note:</strong> ${reason}</p>` : ''}
+      ${reason ? `<p><strong>Note:</strong> ${reason}</p>` : ""}
     </div>
     <p>Your properties are now visible to guests, and you can accept new bookings.</p>
     <a href="${appUrl}/host-dashboard" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
@@ -768,7 +769,7 @@ Marhaba Team
     <div style="background: #EAF3DE; padding: 20px; border-radius: 12px; margin: 20px 0;">
       <h3>📋 تحديث الحالة:</h3>
       <p>حسابك نشط الآن مرة أخرى.</p>
-      ${reason ? `<p><strong>ملاحظة:</strong> ${reason}</p>` : ''}
+      ${reason ? `<p><strong>ملاحظة:</strong> ${reason}</p>` : ""}
     </div>
     <p>أصبحت عقاراتك مرئية للضيوف، ويمكنك قبول حجوزات جديدة.</p>
     <a href="${appUrl}/host-dashboard" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
@@ -794,9 +795,9 @@ Marhaba Team
    * Send host subscription payment received confirmation
    */
   async sendHostPaymentReceivedEmail(host, payment) {
-    const appUrl = process.env.BASE_URL || 'https://mar-haba.ly';
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
     const formattedDate = this.formatDateForEmail(payment.created_at);
-    
+
     const emailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px; background: #f7f6f2;">
   <div style="text-align: center; margin-bottom: 20px;">
@@ -811,7 +812,7 @@ Marhaba Team
     <div style="background: #EAF3DE; padding: 20px; border-radius: 12px; margin: 20px 0;">
       <h3>💳 Payment Details:</h3>
       <p><strong>Amount:</strong> LYD${payment.amount}</p>
-      <p><strong>Reference:</strong> ${payment.reference || 'N/A'}</p>
+      <p><strong>Reference:</strong> ${payment.reference || "N/A"}</p>
       <p><strong>Date:</strong> ${formattedDate}</p>
       <p><strong>Status:</strong> ${payment.status}</p>
     </div>
@@ -831,7 +832,7 @@ Marhaba Team
     <div style="background: #EAF3DE; padding: 20px; border-radius: 12px; margin: 20px 0;">
       <h3>💳 تفاصيل الدفعة:</h3>
       <p><strong>المبلغ:</strong> LYD${payment.amount}</p>
-      <p><strong>المرجع:</strong> ${payment.reference || 'غير متوفر'}</p>
+      <p><strong>المرجع:</strong> ${payment.reference || "غير متوفر"}</p>
       <p><strong>التاريخ:</strong> ${formattedDate}</p>
       <p><strong>الحالة:</strong> ${payment.status}</p>
     </div>
@@ -856,8 +857,8 @@ Marhaba Team
    */
   async sendHostPaymentApprovedEmail(host, payment, expiryDate) {
     const formattedExpiryDate = this.formatDateForEmail(expiryDate);
-    const appUrl = process.env.BASE_URL || 'https://mar-haba.ly';
-    
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
+
     const emailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px; background: #f7f6f2;">
   <div style="text-align: center; margin-bottom: 20px;">
@@ -914,8 +915,8 @@ Marhaba Team
    * Send host subscription payment rejected notification
    */
   async sendHostPaymentRejectedEmail(host, payment, reason) {
-    const appUrl = process.env.BASE_URL || 'https://mar-haba.ly';
-    
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
+
     const emailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px; background: #f7f6f2;">
   <div style="text-align: center; margin-bottom: 20px;">
@@ -931,7 +932,7 @@ Marhaba Team
       <h3 style="color: #E24B4A;">📋 Details:</h3>
       <p><strong>Amount:</strong> LYD${payment.amount}</p>
       <p><strong>Status:</strong> Rejected</p>
-      ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
+      ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}
     </div>
     <p>Please upload a new payment receipt or contact our support team for assistance.</p>
     <a href="${appUrl}/host-dashboard/subscription" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
@@ -950,7 +951,7 @@ Marhaba Team
       <h3 style="color: #E24B4A;">📋 التفاصيل:</h3>
       <p><strong>المبلغ:</strong> LYD${payment.amount}</p>
       <p><strong>الحالة:</strong> مرفوضة</p>
-      ${reason ? `<p><strong>السبب:</strong> ${reason}</p>` : ''}
+      ${reason ? `<p><strong>السبب:</strong> ${reason}</p>` : ""}
     </div>
     <p>يرجى تحميل إيصال دفع جديد أو الاتصال بفريق الدعم للحصول على المساعدة.</p>
     <a href="${appUrl}/host-dashboard/subscription" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
@@ -963,7 +964,7 @@ Marhaba Team
     return this.sendEmail({
       to: host.email,
       subject: `Payment Rejected / تم رفض الدفعة - Marhaba`,
-      text: `Dear ${host.name}, your payment has been rejected. ${reason ? `Reason: ${reason}` : ''}`,
+      text: `Dear ${host.name}, your payment has been rejected. ${reason ? `Reason: ${reason}` : ""}`,
       html: emailHtml,
     });
   }
@@ -973,8 +974,8 @@ Marhaba Team
    */
   async sendHostExpiryReminderEmail(host, expiryDate, daysUntilExpiry) {
     const formattedExpiryDate = this.formatDateForEmail(expiryDate);
-    const appUrl = process.env.BASE_URL || 'https://mar-haba.ly';
-    
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
+
     const emailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px; background: #f7f6f2;">
   <div style="text-align: center; margin-bottom: 20px;">
@@ -1029,8 +1030,9 @@ Marhaba Team
    * Send notification to admin about new host application
    */
   async sendAdminNewHostNotification(host, adminEmail) {
-    const dashboardUrl = process.env.DASHBOARD_URL || 'https://dashboard.mar-haba.ly';
-    
+    const dashboardUrl =
+      process.env.DASHBOARD_URL || "https://dashboard.mar-haba.ly";
+
     const emailHtml = `
 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px;">
   <h2 style="color: #4F46E5;">📋 New Host Application</h2>
@@ -1038,7 +1040,7 @@ Marhaba Team
   <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
     <p><strong>Name:</strong> ${host.name}</p>
     <p><strong>Email:</strong> ${host.email}</p>
-    <p><strong>Phone:</strong> ${host.phone_number || 'N/A'}</p>
+    <p><strong>Phone:</strong> ${host.phone_number || "N/A"}</p>
     <p><strong>Applied:</strong> ${new Date(host.created_at).toLocaleString()}</p>
   </div>
   <a href="${dashboardUrl}/admin/users/${host.id}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
@@ -1053,6 +1055,199 @@ Marhaba Team
       text: `New host application from ${host.name} (${host.email}) requires review.`,
       html: emailHtml,
     });
+  }
+
+  /**
+   * Send notification tp pending application
+   */
+
+  async sendHostPendingApproval(host, adminEmails = []) {
+    // Send to host
+    const hostEmailHtml = `
+<div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px; background: #f7f6f2;">
+  <div style="text-align: center; margin-bottom: 20px;">
+    <h1 style="color: #1a1a2e;">
+      مر<span style="color: #e8c547;">حبا</span>
+    </h1>
+  </div>
+
+  <!-- English Section -->
+  <div style="margin-bottom: 30px;">
+    <h2 style="color: #F59E0B;">⏳ Account Under Review</h2>
+
+    <p>Dear ${host.name},</p>
+
+    <p>
+      Thank you for applying to become a host on Marhaba.
+    </p>
+
+    <div style="background: #FEF3C7; padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid #F59E0B;">
+      <h3 style="color: #F59E0B; margin-top: 0;">
+        📋 Account Status
+      </h3>
+
+      <p>
+        <strong>Status:</strong> Under Review
+      </p>
+
+      <p>
+        Your host application has been received and is currently under review by our administration team.
+      </p>
+
+      <p>
+        Your account will remain under review until the verification process is completed.
+      </p>
+    </div>
+
+    <p>
+      We will notify you by email once the review is completed and your host account has been approved or rejected.
+    </p>
+
+    <p>
+      Thank you for your patience.
+    </p>
+
+    <p>
+      <strong>Registered email:</strong> ${host.email}
+    </p>
+  </div>
+
+  <div style="border-top: 2px solid #e5e7eb; margin: 20px 0;"></div>
+
+  <!-- Arabic Section -->
+  <div style="direction: rtl; text-align: right;">
+    <h2 style="color: #F59E0B;">⏳ الحساب قيد المراجعة</h2>
+
+    <p>عزيزي ${host.name}،</p>
+
+    <p>
+      شكراً لتقديمك طلباً لتصبح مضيفاً على مرحبا.
+    </p>
+
+    <div style="background: #FEF3C7; padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid #F59E0B;">
+      <h3 style="color: #F59E0B; margin-top: 0;">
+        📋 حالة الحساب
+      </h3>
+
+      <p>
+        <strong>الحالة:</strong> قيد المراجعة
+      </p>
+
+      <p>
+        تم استلام طلبك لاستضافة العقارات، وهو حالياً قيد المراجعة من قبل فريق الإدارة.
+      </p>
+
+      <p>
+        سيظل حسابك قيد المراجعة حتى اكتمال عملية التحقق.
+      </p>
+    </div>
+
+    <p>
+      سنقوم بإرسال إشعار إليك عبر البريد الإلكتروني بمجرد الانتهاء من المراجعة والموافقة على حساب المضيف أو رفضه.
+    </p>
+
+    <p>
+      شكراً لصبرك وتفهمك.
+    </p>
+
+    <p>
+      <strong>البريد الإلكتروني المسجل:</strong> ${host.email}
+    </p>
+  </div>
+</div>
+  `;
+
+    const hostEmailText = `
+Dear ${host.name},
+
+Thank you for applying to become a host on Marhaba.
+
+Your host application has been received and is currently under review by our administration team.
+
+Status: Under Review
+
+Your account will remain under review until the verification process is completed.
+
+We will notify you by email once the review is completed and your host account has been approved or rejected.
+
+Registered email: ${host.email}
+
+Thank you for your patience.
+
+---
+
+عزيزي ${host.name}،
+
+شكراً لتقديمك طلباً لتصبح مضيفاً على مرحبا.
+
+تم استلام طلبك، وهو حالياً قيد المراجعة من قبل فريق الإدارة.
+
+الحالة: قيد المراجعة
+
+سيظل حسابك قيد المراجعة حتى اكتمال عملية التحقق.
+
+سنقوم بإرسال إشعار إليك عبر البريد الإلكتروني بمجرد الانتهاء من المراجعة والموافقة على حساب المضيف أو رفضه.
+
+البريد الإلكتروني المسجل: ${host.email}
+
+شكراً لصبرك وتفهمك.
+  `;
+
+    // Send to host
+    await this.sendEmail({
+      to: host.email,
+      subject: `Account Under Review / الحساب قيد المراجعة - Marhaba`,
+      text: hostEmailText,
+      html: hostEmailHtml,
+    });
+
+    // Send notification to admins
+    if (adminEmails && adminEmails.length > 0) {
+      const adminEmailHtml = `
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px;">
+  <h2 style="color: #F59E0B;">⏳ Host Account Under Review</h2>
+
+  <p>
+    A new host application is currently under review.
+  </p>
+
+  <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+    <p><strong>Name:</strong> ${host.name}</p>
+    <p><strong>Email:</strong> ${host.email}</p>
+    <p><strong>Phone:</strong> ${host.phone_number || "N/A"}</p>
+    <p><strong>Status:</strong> Under Review</p>
+    <p><strong>Applied:</strong> ${new Date(host.created_at).toLocaleString()}</p>
+  </div>
+
+  <p>
+    Please review the host application and update the account status through the administration system.
+  </p>
+</div>
+    `;
+
+      const adminEmailText = `
+A new host application is currently under review.
+
+Name: ${host.name}
+Email: ${host.email}
+Phone: ${host.phone_number || "N/A"}
+Status: Under Review
+Applied: ${new Date(host.created_at).toLocaleString()}
+
+Please review the host application and update the account status through the administration system.
+    `;
+
+      for (const adminEmail of adminEmails) {
+        await this.sendEmail({
+          to: adminEmail,
+          subject: `Host Account Under Review / حساب مضيف قيد المراجعة - Marhaba`,
+          text: adminEmailText,
+          html: adminEmailHtml,
+        });
+      }
+    }
+
+    return { success: true };
   }
 }
 
