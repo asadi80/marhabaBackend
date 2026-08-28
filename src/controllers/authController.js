@@ -26,6 +26,8 @@ const { asyncHandler } = require("../middleware/errorHandler");
 const { maskSensitiveData } = require("../utils/helpers");
 const emailService = require("../services/emailService");
 
+console.log('✅ AuthController loaded, prisma type:', typeof prisma);
+
 // @desc    Register user
 // @route   POST /api/v1/auth/register
 // @access  Public

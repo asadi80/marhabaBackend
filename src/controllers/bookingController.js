@@ -1,3 +1,4 @@
+//src/controller/bookingController.js
 const { prisma } = require('../config/database');
 const { redisHelpers } = require('../config/redis');
 const { asyncHandler } = require('../middleware/errorHandler');
