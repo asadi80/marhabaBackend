@@ -10,10 +10,7 @@ const { asyncHandler } = require("../middleware/errorHandler");
 const { maskSensitiveData } = require("../utils/helpers");
 const emailService = require("../services/emailService");
 
-const authService = require("../services/authService");
-const { asyncHandler } = require("../middleware/errorHandler");
-const { maskSensitiveData } = require("../utils/helpers");
-const emailService = require("../services/emailService");
+
 
 console.log('✅ AuthController loaded, prisma type:', typeof prisma);
 
