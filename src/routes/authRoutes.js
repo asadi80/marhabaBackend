@@ -8,8 +8,8 @@ const { userValidators, handleValidationErrors } = require('../middleware/valida
 
 // Public routes with rate limiting
 router.post('/register', authLimiter, userValidators.register, handleValidationErrors, authController.register);
-router.post('/login', authLimiter, userValidators.login, handleValidationErrors, authController.login);
-router.post('/refresh', authLimiter, authController.refreshToken);
+router.post('/login', userValidators.login, handleValidationErrors, authController.login);
+router.post('/refresh',  authController.refreshToken);
 
 // Email verification routes
 router.get('/verify-email', authController.verifyEmail);
