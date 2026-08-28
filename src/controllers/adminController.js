@@ -296,7 +296,7 @@ const updateUser = asyncHandler(async (req, res) => {
         : [];
 
       try {
-        const emailResult = await emailService.sendHostPendingApprovalEmail(
+        const emailResult = await emailService.sendHostPendingApproval(
           existingUser,
           adminEmails
         );
