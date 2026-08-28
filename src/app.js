@@ -30,10 +30,16 @@ app.use(
 //  CORS Configuration 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, Postman, etc.)
+    // Allow requests with no origin
+    // (Postman, curl, mobile apps, server-to-server, etc.)
     if (!origin) {
       return callback(null, true);
     }
+
+    // Allow ALL localhost and 127.0.0.1 ports
+    const isLocalhost =
+      /^http:\/\/localhost(:\d+)?$/.test(origin) ||
+      /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
 
     const allowedOrigins = [
       "https://mar-haba.ly",
@@ -41,23 +47,16 @@ const corsOptions = {
       process.env.FRONTEND_URL,
     ].filter(Boolean);
 
-    // Allow any localhost / 127.0.0.1 port during development
-    const isLocalhost =
-      /^http:\/\/localhost:\d+$/.test(origin) ||
-      /^http:\/\/127\.0\.0\.1:\d+$/.test(origin);
-
-    // Allow production frontend or localhost
     if (isLocalhost || allowedOrigins.includes(origin)) {
+      console.log("✅ CORS allowed:", origin);
       return callback(null, true);
     }
 
-    console.log("❌ Blocked origin:", origin);
-    return callback(new Error("Not allowed by CORS"));
+    console.log("❌ CORS blocked:", origin);
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
   },
 
   credentials: true,
-
-  optionsSuccessStatus: 200,
 
   methods: [
     "GET",
@@ -74,13 +73,18 @@ const corsOptions = {
     "X-Requested-With",
     "Accept",
   ],
+
+  optionsSuccessStatus: 204,
 };
 
-// Apply CORS middleware - this handles preflight requests automatically
 app.use(cors(corsOptions));
 
-// ❌ REMOVE THIS LINE - it's causing the error:
-// app.options('*', cors(corsOptions));
+// Explicitly handle preflight requests
+app.options("*", cors(corsOptions));
+
+
+
+
 
 // Compression
 app.use(compression());
