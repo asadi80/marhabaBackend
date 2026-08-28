@@ -26,8 +26,9 @@ model User {
   created_at                 DateTime  @default(now()) @db.Timestamp
   updated_at                 DateTime  @default(now()) @updatedAt @db.Timestamp
 
-  host_details Json @default("{\"rating\": 0, \"totalListings\": 0, \"verified\": false, \"notificationSent\": {\"oneWeek\": false, \"twoDays\": false}}") @db.JsonB
-  user_details Json @default("{\"preferences\": {}, \"bookings\": []}") @db.JsonB
+  host_details Json @default("{\"rating\":0,\"totalListings\":0,\"verified\":false,\"id_verified\":false,\"id_verified_at\":null,\"id_rejected\":false,\"id_rejection_reason\":null,\"payment_verified\":false,\"payment_verified_at\":null,\"payment_rejected\":false,\"payment_rejection_reason\":null,\"notificationSent\":{\"oneWeek\":false,\"twoDays\":false}}") @db.JsonB
+
+  user_details Json @default("{\"preferences\":{},\"bookings\":[]}") @db.JsonB
 
   id_images String[] @default([])
 
@@ -125,8 +126,7 @@ model Booking {
   updated_at DateTime @default(now()) @updatedAt @db.Timestamp
 
   listing Listing @relation(fields: [listing_id], references: [id], onDelete: Cascade)
-
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   blocked_entries HostBlockedUser[]
 
@@ -145,7 +145,6 @@ model HostBlockedUser {
   created_at DateTime @default(now()) @db.Timestamp
 
   host User @relation("host_blocked", fields: [host_id], references: [id], onDelete: Cascade)
-
   user User @relation("user_blocked", fields: [user_id], references: [id], onDelete: Cascade)
 
   booking Booking? @relation(fields: [booking_id], references: [id])
