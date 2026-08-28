@@ -25,6 +25,7 @@ router.get('/me', protect, authController.getMe);
 router.put('/me', protect, userValidators.updateProfile, handleValidationErrors, authController.updateMe);
 router.post('/change-password', protect, authController.changePassword);
 router.post('/logout', protect, authController.logout);
+router.get('/host-verification-status', protect, authController.getHostVerificationStatus); 
 
 router.post(
   '/me/id-image',

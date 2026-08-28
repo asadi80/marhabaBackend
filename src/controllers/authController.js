@@ -415,6 +415,68 @@ const addIdImage = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Get host verification status
+// @route   GET /api/v1/auth/host-verification-status
+// @access  Private (Host only)
+const getHostVerificationStatus = asyncHandler(async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        host_subscription_payments: {
+          orderBy: {
+            created_at: 'desc',
+          },
+          take: 1,
+        },
+      },
+    });
+
+    if (!user || user.role !== 'host') {
+      return res.status(404).json({
+        success: false,
+        message: 'Host not found',
+      });
+    }
+
+    const hostDetails = user.host_details || {};
+    const latestPayment = user.host_subscription_payments[0] || null;
+
+    const verificationStatus = {
+      id: {
+        uploaded: user.id_images && user.id_images.length > 0,
+        verified: hostDetails.id_verified || false,
+        verified_at: hostDetails.id_verified_at || null,
+        rejected: hostDetails.id_rejected || false,
+        rejection_reason: hostDetails.id_rejection_reason || null,
+      },
+      payment: {
+        uploaded: latestPayment && latestPayment.receipt_images && latestPayment.receipt_images.length > 0,
+        status: latestPayment ? latestPayment.status : 'pending',
+        amount: latestPayment ? latestPayment.amount : null,
+        submitted_at: latestPayment ? latestPayment.created_at : null,
+        approved_at: hostDetails.payment_verified_at || null,
+        rejected: hostDetails.payment_rejected || false,
+        rejection_reason: hostDetails.payment_rejection_reason || null,
+      },
+      overall_status: user.status,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: verificationStatus,
+    });
+  } catch (error) {
+    console.error('❌ Error fetching host verification status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch verification status',
+    });
+  }
+});
+
 module.exports = {
   register,
   login,
@@ -429,4 +491,5 @@ module.exports = {
   updateMe,
   changePassword,
   addIdImage,
+  getHostVerificationStatus,
 };
