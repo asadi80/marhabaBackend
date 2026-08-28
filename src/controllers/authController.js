@@ -1,7 +1,9 @@
 // src/controllers/authController.js
+const { prisma } = require("../config/database");
 const authService = require("../services/authService");
 const { asyncHandler } = require("../middleware/errorHandler");
 const { maskSensitiveData } = require("../utils/helpers");
+const emailService = require("../services/emailService"); // Also import email service
 
 // @desc    Register user
 // @route   POST /api/v1/auth/register
