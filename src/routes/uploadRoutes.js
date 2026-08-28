@@ -1,4 +1,4 @@
-// In src/routes/uploadRoutes.js
+// src/routes/uploadRoutes.js
 
 const express = require("express");
 const upload = require("../middleware/upload");
@@ -65,16 +65,47 @@ router.post(
         console.log("👤 Uploading ID for user:", targetUserId);
         console.log("📎 ID URL:", url);
 
+        // Get current user to access host_details
+        const currentUser = await prisma.user.findUnique({
+          where: { id: targetUserId },
+        });
+
+        if (!currentUser) {
+          return res.status(404).json({
+            success: false,
+            message: "User not found",
+          });
+        }
+
+        // Merge existing host_details with new verification status
+        const hostDetails = currentUser.host_details || {};
+
         const updatedUser = await prisma.user.update({
           where: { id: targetUserId },
           data: {
             id_images: {
               push: url,
             },
+            // Update host_details with verification status
+            host_details: {
+              ...hostDetails,
+              id_verified: false,
+              id_verified_at: null,
+              id_rejected: false,
+              id_rejection_reason: null,
+              // Preserve payment verification status if it exists
+              payment_verified: hostDetails.payment_verified || false,
+              payment_verified_at: hostDetails.payment_verified_at || null,
+              payment_rejected: hostDetails.payment_rejected || false,
+              payment_rejection_reason: hostDetails.payment_rejection_reason || null,
+            },
           },
           select: {
             id: true,
+            name: true,
+            email: true,
             id_images: true,
+            host_details: true,
           },
         });
 
@@ -124,6 +155,13 @@ router.post(
             });
           }
 
+          // Get current user to access host_details
+          const currentUser = await prisma.user.findUnique({
+            where: { id: payment.host_id },
+          });
+
+          const hostDetails = currentUser?.host_details || {};
+
           // Update the payment record with the receipt image
           const updatedPayment = await prisma.hostSubscriptionPayment.update({
             where: { id: payment_id },
@@ -131,7 +169,7 @@ router.post(
               receipt_images: {
                 push: url,
               },
-              status: "uploaded",
+              status: "pending", // Reset to pending for review
               updated_at: new Date(),
             },
             include: {
@@ -144,6 +182,27 @@ router.post(
               }
             }
           });
+
+          // Update user's host_details with payment verification status
+          if (currentUser) {
+            await prisma.user.update({
+              where: { id: payment.host_id },
+              data: {
+                host_details: {
+                  ...hostDetails,
+                  payment_verified: false,
+                  payment_verified_at: null,
+                  payment_rejected: false,
+                  payment_rejection_reason: null,
+                  // Preserve ID verification status
+                  id_verified: hostDetails.id_verified || false,
+                  id_verified_at: hostDetails.id_verified_at || null,
+                  id_rejected: hostDetails.id_rejected || false,
+                  id_rejection_reason: hostDetails.id_rejection_reason || null,
+                },
+              },
+            });
+          }
 
           console.log("✅ Payment receipt added to payment record:", updatedPayment.id);
 
@@ -162,7 +221,7 @@ router.post(
           });
         }
 
-        // If no payment_id, create a NEW payment record or throw error
+        // If no payment_id, create a NEW payment record
         if (user_id) {
           const targetUserId = user_id;
           
@@ -179,12 +238,19 @@ router.post(
           console.log("💰 Creating new payment receipt for user:", targetUserId);
           console.log("📎 Payment receipt URL:", url);
 
+          // Get current user to access host_details
+          const currentUser = await prisma.user.findUnique({
+            where: { id: targetUserId },
+          });
+
+          const hostDetails = currentUser?.host_details || {};
+
           // Create a new payment record
           const newPayment = await prisma.hostSubscriptionPayment.create({
             data: {
               host_id: targetUserId,
               amount: 0, // You'll need to set the actual amount
-              status: "uploaded",
+              status: "pending",
               receipt_images: [url],
               created_at: new Date(),
               updated_at: new Date(),
@@ -199,6 +265,27 @@ router.post(
               }
             }
           });
+
+          // Update user's host_details with payment verification status
+          if (currentUser) {
+            await prisma.user.update({
+              where: { id: targetUserId },
+              data: {
+                host_details: {
+                  ...hostDetails,
+                  payment_verified: false,
+                  payment_verified_at: null,
+                  payment_rejected: false,
+                  payment_rejection_reason: null,
+                  // Preserve ID verification status
+                  id_verified: hostDetails.id_verified || false,
+                  id_verified_at: hostDetails.id_verified_at || null,
+                  id_rejected: hostDetails.id_rejected || false,
+                  id_rejection_reason: hostDetails.id_rejection_reason || null,
+                },
+              },
+            });
+          }
 
           console.log("✅ New payment record created:", newPayment.id);
 
@@ -249,5 +336,91 @@ router.post(
     }
   },
 );
+
+// --- GET VERIFICATION STATUS ENDPOINT ---
+router.get("/verification-status", protect, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        host_subscription_payments: {
+          orderBy: {
+            created_at: 'desc',
+          },
+          take: 1,
+        },
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // If user is not a host, return a basic response
+    if (user.role !== "host") {
+      return res.status(200).json({
+        success: true,
+        data: {
+          id: {
+            uploaded: false,
+            verified: false,
+            verified_at: null,
+            rejected: false,
+            rejection_reason: null,
+          },
+          payment: {
+            uploaded: false,
+            status: 'pending',
+            amount: null,
+            submitted_at: null,
+            approved_at: null,
+            rejected: false,
+            rejection_reason: null,
+          },
+          overall_status: user.status,
+        },
+      });
+    }
+
+    const hostDetails = user.host_details || {};
+    const latestPayment = user.host_subscription_payments[0] || null;
+
+    const verificationStatus = {
+      id: {
+        uploaded: user.id_images && user.id_images.length > 0,
+        verified: hostDetails.id_verified || false,
+        verified_at: hostDetails.id_verified_at || null,
+        rejected: hostDetails.id_rejected || false,
+        rejection_reason: hostDetails.id_rejection_reason || null,
+      },
+      payment: {
+        uploaded: latestPayment && latestPayment.receipt_images && latestPayment.receipt_images.length > 0,
+        status: latestPayment ? latestPayment.status : 'pending',
+        amount: latestPayment ? latestPayment.amount : null,
+        submitted_at: latestPayment ? latestPayment.created_at : null,
+        approved_at: hostDetails.payment_verified_at || null,
+        rejected: hostDetails.payment_rejected || false,
+        rejection_reason: hostDetails.payment_rejection_reason || null,
+      },
+      overall_status: user.status,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: verificationStatus,
+    });
+  } catch (error) {
+    console.error("❌ Error fetching verification status:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch verification status",
+    });
+  }
+});
 
 module.exports = router;
