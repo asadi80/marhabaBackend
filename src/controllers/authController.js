@@ -1,25 +1,14 @@
 // src/controllers/authController.js
-// Debug: Check if prisma is imported correctly
-console.log('🔍 Loading authController...');
-console.log('📦 Prisma type:', typeof prisma);
 
-// Import with fallback
-let prisma;
-try {
-  const db = require("../config/database");
-  prisma = db.prisma;
-  console.log('✅ Prisma imported successfully');
-} catch (error) {
-  console.error('❌ Failed to import prisma:', error.message);
-  // Try alternative import
-  try {
-    const { PrismaClient } = require('@prisma/client');
-    prisma = new PrismaClient();
-    console.log('✅ Prisma initialized directly');
-  } catch (err) {
-    console.error('❌ Failed to initialize prisma:', err.message);
-  }
-}
+const { prisma } = require("../config/database");
+
+console.log("🔍 Loading authController...");
+console.log("📦 Prisma type:", typeof prisma);
+
+const authService = require("../services/authService");
+const { asyncHandler } = require("../middleware/errorHandler");
+const { maskSensitiveData } = require("../utils/helpers");
+const emailService = require("../services/emailService");
 
 const authService = require("../services/authService");
 const { asyncHandler } = require("../middleware/errorHandler");
