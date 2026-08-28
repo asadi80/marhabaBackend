@@ -66,6 +66,33 @@ const login = asyncHandler(async (req, res) => {
   try {
     const result = await authService.login(email, password, deviceInfo);
 
+    // For host users, check verification status
+    let verificationStatus = null;
+    if (result.user.role === "host") {
+      const hostDetails = result.user.host_details || {};
+      const latestPayment = result.user.host_subscription_payments?.[0] || null;
+      
+      verificationStatus = {
+        id: {
+          uploaded: result.user.id_images && result.user.id_images.length > 0,
+          verified: hostDetails.id_verified || false,
+          verified_at: hostDetails.id_verified_at || null,
+          rejected: hostDetails.id_rejected || false,
+          rejection_reason: hostDetails.id_rejection_reason || null,
+        },
+        payment: {
+          uploaded: latestPayment && latestPayment.receipt_images && latestPayment.receipt_images.length > 0,
+          status: latestPayment ? latestPayment.status : 'pending',
+          amount: latestPayment ? latestPayment.amount : null,
+          submitted_at: latestPayment ? latestPayment.created_at : null,
+          approved_at: hostDetails.payment_verified_at || null,
+          rejected: hostDetails.payment_rejected || false,
+          rejection_reason: hostDetails.payment_rejection_reason || null,
+        },
+        overall_status: result.user.status,
+      };
+    }
+
     res.status(200).json({
       success: true,
       message: result.user.loginMessage || "Login successful",
@@ -77,6 +104,8 @@ const login = asyncHandler(async (req, res) => {
           result.user.isHostApproved !== undefined
             ? result.user.isHostApproved
             : true,
+        // Include verification status for host users
+        verificationStatus: verificationStatus,
       },
     });
   } catch (error) {
@@ -87,7 +116,6 @@ const login = asyncHandler(async (req, res) => {
         code: "EMAIL_NOT_VERIFIED",
         message: error.message,
         userData: error.userData,
-        // Generate a link to resend page with email pre-filled
         resendLink: `/resend-verification?email=${encodeURIComponent(error.userData.email)}`,
       });
     }
@@ -434,15 +462,48 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
       },
     });
 
-    if (!user || user.role !== 'host') {
+    if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'Host not found',
+        message: 'User not found',
+      });
+    }
+
+    // If user is not a host, return a basic response
+    if (user.role !== 'host') {
+      return res.status(200).json({
+        success: true,
+        data: {
+          id: {
+            uploaded: false,
+            verified: false,
+            verified_at: null,
+            rejected: false,
+            rejection_reason: null,
+          },
+          payment: {
+            uploaded: false,
+            status: 'pending',
+            amount: null,
+            submitted_at: null,
+            approved_at: null,
+            rejected: false,
+            rejection_reason: null,
+          },
+          overall_status: user.status,
+        },
       });
     }
 
     const hostDetails = user.host_details || {};
     const latestPayment = user.host_subscription_payments[0] || null;
+
+    // Check if payment is rejected from host_details
+    const paymentRejected = hostDetails.payment_rejected || false;
+    const paymentStatus = latestPayment ? latestPayment.status : 'pending';
+
+    // If payment is rejected in host_details but status is still pending, update it
+    const finalPaymentStatus = paymentRejected ? 'rejected' : paymentStatus;
 
     const verificationStatus = {
       id: {
@@ -454,11 +515,11 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
       },
       payment: {
         uploaded: latestPayment && latestPayment.receipt_images && latestPayment.receipt_images.length > 0,
-        status: latestPayment ? latestPayment.status : 'pending',
+        status: finalPaymentStatus,
         amount: latestPayment ? latestPayment.amount : null,
         submitted_at: latestPayment ? latestPayment.created_at : null,
         approved_at: hostDetails.payment_verified_at || null,
-        rejected: hostDetails.payment_rejected || false,
+        rejected: paymentRejected,
         rejection_reason: hostDetails.payment_rejection_reason || null,
       },
       overall_status: user.status,
@@ -473,6 +534,7 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch verification status',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 });
