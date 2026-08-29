@@ -1169,6 +1169,286 @@ const getRevenueReport = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Get all subscription payments with filters
+// @route   GET /api/v1/admin/payments
+// @access  Private (Admin/Super Admin only)
+const getPayments = asyncHandler(async (req, res) => {
+  const { status, host_id, page = 1, limit = 20 } = req.query;
+  
+  const where = {};
+  if (status) where.status = status;
+  if (host_id) where.host_id = host_id;
+
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+  const take = parseInt(limit);
+
+  const [payments, total] = await Promise.all([
+    prisma.hostSubscriptionPayment.findMany({
+      where,
+      include: {
+        host: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone_number: true,
+          },
+        },
+      },
+      orderBy: {
+        created_at: 'desc',
+      },
+      skip,
+      take,
+    }),
+    prisma.hostSubscriptionPayment.count({ where }),
+  ]);
+
+  res.status(200).json({
+    success: true,
+    data: payments,
+    pagination: {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total,
+      pages: Math.ceil(total / parseInt(limit)),
+    },
+  });
+});
+
+// @desc    Get a single payment
+// @route   GET /api/v1/admin/payments/:paymentId
+// @access  Private (Admin/Super Admin only)
+const getPayment = asyncHandler(async (req, res) => {
+  const { paymentId } = req.params;
+
+  const payment = await prisma.hostSubscriptionPayment.findUnique({
+    where: { id: paymentId },
+    include: {
+      host: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone_number: true,
+          role: true,
+          status: true,
+          id_images: true,
+          host_details: true,
+        },
+      },
+    },
+  });
+
+  if (!payment) {
+    return res.status(404).json({
+      success: false,
+      message: "Payment not found",
+    });
+  }
+
+  res.status(200).json({
+    success: true,
+    data: payment,
+  });
+});
+
+// @desc    Approve a payment
+// @route   PUT /api/v1/admin/payments/:paymentId/approve
+// @access  Private (Admin/Super Admin only)
+const approvePayment = asyncHandler(async (req, res) => {
+  const { paymentId } = req.params;
+  const { notes } = req.body;
+
+  const payment = await prisma.hostSubscriptionPayment.findUnique({
+    where: { id: paymentId },
+    include: {
+      host: true,
+    },
+  });
+
+  if (!payment) {
+    return res.status(404).json({
+      success: false,
+      message: "Payment not found",
+    });
+  }
+
+  if (payment.status === "approved") {
+    return res.status(400).json({
+      success: false,
+      message: "Payment is already approved",
+    });
+  }
+
+  const now = new Date();
+  const expiryDate = new Date(now);
+  expiryDate.setMonth(expiryDate.getMonth() + 6);
+
+  // Update payment
+  const updatedPayment = await prisma.hostSubscriptionPayment.update({
+    where: { id: paymentId },
+    data: {
+      status: "approved",
+      paid_at: now,
+      period_start: now,
+      period_end: expiryDate,
+      notes: notes || payment.notes,
+    },
+    include: {
+      host: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        },
+      },
+    },
+  });
+
+  // Update user's host details
+  const hostDetails = payment.host.host_details || {};
+  await prisma.user.update({
+    where: { id: payment.host_id },
+    data: {
+      host_details: {
+        ...hostDetails,
+        payment_verified: true,
+        payment_verified_at: now,
+        payment_rejected: false,
+        payment_rejection_reason: null,
+      },
+      host_expiry_date: expiryDate,
+    },
+  });
+
+  // Send approval email
+  await emailService.sendHostPaymentApprovedEmail(
+    payment.host,
+    updatedPayment,
+    expiryDate
+  );
+
+  res.status(200).json({
+    success: true,
+    message: "Payment approved successfully",
+    data: updatedPayment,
+  });
+});
+
+// @desc    Reject a payment
+// @route   PUT /api/v1/admin/payments/:paymentId/reject
+// @access  Private (Admin/Super Admin only)
+const rejectPayment = asyncHandler(async (req, res) => {
+  const { paymentId } = req.params;
+  const { reason } = req.body;
+
+  if (!reason) {
+    return res.status(400).json({
+      success: false,
+      message: "Rejection reason is required",
+    });
+  }
+
+  const payment = await prisma.hostSubscriptionPayment.findUnique({
+    where: { id: paymentId },
+    include: {
+      host: true,
+    },
+  });
+
+  if (!payment) {
+    return res.status(404).json({
+      success: false,
+      message: "Payment not found",
+    });
+  }
+
+  if (payment.status === "rejected") {
+    return res.status(400).json({
+      success: false,
+      message: "Payment is already rejected",
+    });
+  }
+
+  // Update payment
+  const updatedPayment = await prisma.hostSubscriptionPayment.update({
+    where: { id: paymentId },
+    data: {
+      status: "rejected",
+      notes: reason,
+    },
+    include: {
+      host: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        },
+      },
+    },
+  });
+
+  // Update user's host details
+  const hostDetails = payment.host.host_details || {};
+  await prisma.user.update({
+    where: { id: payment.host_id },
+    data: {
+      host_details: {
+        ...hostDetails,
+        payment_verified: false,
+        payment_verified_at: null,
+        payment_rejected: true,
+        payment_rejection_reason: reason,
+      },
+    },
+  });
+
+  // Send rejection email
+  await emailService.sendHostPaymentRejectedEmail(
+    payment.host,
+    updatedPayment,
+    reason
+  );
+
+  res.status(200).json({
+    success: true,
+    message: "Payment rejected successfully",
+    data: updatedPayment,
+  });
+});
+
+// @desc    Get payment statistics
+// @route   GET /api/v1/admin/payments/stats
+// @access  Private (Admin/Super Admin only)
+const getPaymentStats = asyncHandler(async (req, res) => {
+  const [total, pending, approved, rejected] = await Promise.all([
+    prisma.hostSubscriptionPayment.count(),
+    prisma.hostSubscriptionPayment.count({ where: { status: "pending" } }),
+    prisma.hostSubscriptionPayment.count({ where: { status: "approved" } }),
+    prisma.hostSubscriptionPayment.count({ where: { status: "rejected" } }),
+  ]);
+
+  // Get total approved amount
+  const approvedPayments = await prisma.hostSubscriptionPayment.aggregate({
+    where: { status: "approved" },
+    _sum: {
+      amount: true,
+    },
+  });
+
+  res.status(200).json({
+    success: true,
+    data: {
+      total,
+      pending,
+      approved,
+      rejected,
+      totalApprovedAmount: approvedPayments._sum.amount || 0,
+    },
+  });
+});
+
 module.exports = {
   getStats,
   getUsers,
@@ -1187,4 +1467,9 @@ module.exports = {
   deleteListing,
   getUserReport,
   getRevenueReport,
+   getPayments,
+  getPayment,
+  approvePayment,
+  rejectPayment,
+  getPaymentStats,
 };
