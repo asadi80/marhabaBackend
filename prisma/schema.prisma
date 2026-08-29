@@ -8,26 +8,26 @@ datasource db {
 }
 
 model User {
-  id                         String    @id @default(uuid()) @db.Uuid
-  name                       String    @db.VarChar(255)
-  email                      String    @unique @db.VarChar(255)
-  password_hash              String    @db.VarChar(255)
-  phone_number               String    @db.VarChar(50)
-  role                       String    @default("user") @db.VarChar(50)
-  status                     String    @default("pending") @db.VarChar(50)
-  status_reason              String?   @db.Text
-  host_expiry_date           DateTime?
+  id               String    @id @default(uuid()) @db.Uuid
+  name             String    @db.VarChar(255)
+  email            String    @unique @db.VarChar(255)
+  password_hash    String    @db.VarChar(255)
+  phone_number     String    @db.VarChar(50)
+  role             String    @default("user") @db.VarChar(50)
+  status           String    @default("pending") @db.VarChar(50)
+  status_reason    String?   @db.Text
+  host_expiry_date DateTime?
 
   email_verified             Boolean   @default(false)
   email_verification_token   String?   @db.VarChar(255)
   email_verification_expires DateTime?
 
-  reset_password_token       String?   @db.VarChar(255)
-  reset_password_expires     DateTime?
+  reset_password_token   String?   @db.VarChar(255)
+  reset_password_expires DateTime?
 
-  last_active                DateTime  @default(now()) @db.Timestamp
-  created_at                 DateTime  @default(now()) @db.Timestamp
-  updated_at                 DateTime  @default(now()) @updatedAt @db.Timestamp
+  last_active DateTime @default(now()) @db.Timestamp
+  created_at  DateTime @default(now()) @db.Timestamp
+  updated_at  DateTime @default(now()) @updatedAt @db.Timestamp
 
   host_details Json @default("{\"rating\":0,\"totalListings\":0,\"verified\":false,\"id_verified\":false,\"id_verified_at\":null,\"id_rejected\":false,\"id_rejection_reason\":null,\"payment_verified\":false,\"payment_verified_at\":null,\"payment_rejected\":false,\"payment_rejection_reason\":null,\"notificationSent\":{\"oneWeek\":false,\"twoDays\":false}}") @db.JsonB
 
@@ -63,7 +63,7 @@ model UserIdDocument {
   document_type String @default("national_id") @db.VarChar(50)
   side          String @default("front") @db.VarChar(20)
 
-  file_url  String @db.Text
+  file_url  String  @db.Text
   file_name String? @db.VarChar(255)
   file_type String? @db.VarChar(100)
 
