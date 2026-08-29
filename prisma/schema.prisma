@@ -30,8 +30,8 @@ model User {
 
   user_details Json @default("{\"preferences\":{},\"bookings\":[]}") @db.JsonB
 
-  id_images        String[] @default([])
-  status_id_images String   @default("pending") @db.VarChar(20)
+  id_images         String[] @default([])
+  id_image_statuses Json     @default("{}") @db.JsonB
 
   sessions UserSession[]
   events   UserEvent[]
