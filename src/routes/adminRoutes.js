@@ -45,7 +45,6 @@ router.put(
 router.delete(
   "/users/:id",
   authorize("admin", "super_admin"),
-
   commonValidators.id("id"),
   handleValidationErrors,
   adminController.deleteUser,
@@ -66,7 +65,6 @@ router.post(
 router.get(
   "/users/:id/listings",
   authorize("admin", "super_admin"),
-
   commonValidators.id("id"),
   handleValidationErrors,
   adminController.getUserListings,
@@ -76,7 +74,6 @@ router.get(
 router.get(
   "/users/:id/bookings",
   authorize("admin", "super_admin"),
-
   commonValidators.id("id"),
   handleValidationErrors,
   adminController.getUserBookings,
@@ -86,7 +83,6 @@ router.get(
 router.get(
   "/users/:id/sessions",
   authorize("admin", "super_admin"),
-
   commonValidators.id("id"),
   handleValidationErrors,
   adminController.getUserSessions,
@@ -96,7 +92,6 @@ router.get(
 router.get(
   "/users/:id/events",
   authorize("admin", "super_admin"),
-
   commonValidators.id("id"),
   handleValidationErrors,
   adminController.getUserEvents,
@@ -139,7 +134,6 @@ router.delete(
 router.get(
   "/reports/users",
   authorize("admin", "super_admin"),
-  commonValidators.id("id"),
   handleValidationErrors,
   adminController.getUserReport,
 );
@@ -148,52 +142,50 @@ router.get(
 router.get(
   "/reports/revenue",
   authorize("admin", "super_admin"),
-  commonValidators.id("id"),
   handleValidationErrors,
   adminController.getRevenueReport,
 );
 
+// ==================== Payment Management ====================
 // Payment stats
 router.get(
-  "/stats",
+  "/payments/stats",
   authorize("admin", "super_admin"),
-  commonValidators.id("id"),
   handleValidationErrors,
   adminController.getPaymentStats,
 );
 
 // Get all payments (with filters)
 router.get(
-  "/",
+  "/payments",
   authorize("admin", "super_admin"),
-  commonValidators.id("id"),
   handleValidationErrors,
-  getPayments,
+  adminController.getPayments,  // <-- FIXED: Use adminController.getPayments
 );
 
 // Get single payment
 router.get(
-  "/:paymentId",
+  "/payments/:paymentId",
   authorize("admin", "super_admin"),
-  commonValidators.id("id"),
+  commonValidators.id("paymentId"),
   handleValidationErrors,
   adminController.getPayment,
 );
 
 // Approve payment
 router.put(
-  "/:paymentId/approve",
+  "/payments/:paymentId/approve",
   authorize("admin", "super_admin"),
-  commonValidators.id("id"),
+  commonValidators.id("paymentId"),
   handleValidationErrors,
   adminController.approvePayment,
 );
 
 // Reject payment
 router.put(
-  "/:paymentId/reject",
+  "/payments/:paymentId/reject",
   authorize("admin", "super_admin"),
-  commonValidators.id("id"),
+  commonValidators.id("paymentId"),
   handleValidationErrors,
   adminController.rejectPayment,
 );
