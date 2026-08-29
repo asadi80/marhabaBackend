@@ -13,7 +13,7 @@ const authRoutes = require("./routes/authRoutes");
 const listingRoutes = require("./routes/listingRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
 const AdminRoutes = require('./routes/adminRoutes')
-
+const databaseRoutes = require("./routes/databaseRoutes");
 const app = express();
 const logger = require("./middleware/logger");
 
@@ -121,6 +121,7 @@ app.use("/api/v1/listings", listingRoutes);
 app.use("/api/v1/bookings", bookingRoutes);
 app.use("/api/v1/dashboard", AdminRoutes);
 app.use("/api/v1/uploads", uploadRoutes);
+app.use("/api/v1/database", databaseRoutes);
 // Root route
 app.get("/", (req, res) => {
   res.status(200).json({
