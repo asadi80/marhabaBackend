@@ -1448,6 +1448,314 @@ const getPaymentStats = asyncHandler(async (req, res) => {
     },
   });
 });
+// @desc    Approve user's ID verification
+// @route   PUT /api/v1/admin/users/:id/id/approve
+// @access  Private (Admin/Super Admin)
+const approveUserId = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { notes } = req.body;
+
+  const user = await prisma.user.findUnique({
+    where: { id },
+  });
+
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: "User not found",
+    });
+  }
+
+  // Make sure user has uploaded ID images
+  if (!user.id_images || user.id_images.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "User has not uploaded any ID images",
+    });
+  }
+
+  if (user.id_status === "approved") {
+    return res.status(400).json({
+      success: false,
+      message: "ID is already approved",
+    });
+  }
+
+  const now = new Date();
+
+  // Update individual image statuses
+  const currentImageStatuses = user.id_image_statuses || {};
+
+  const updatedImageStatuses = {};
+
+  user.id_images.forEach((imageUrl) => {
+    updatedImageStatuses[imageUrl] = {
+      status: "approved",
+      updated_at: now.toISOString(),
+      notes: notes || null,
+    };
+  });
+
+  // Update host details
+  const hostDetails = user.host_details || {};
+
+  const updatedHostDetails = {
+    ...hostDetails,
+
+    id_verified: true,
+    id_verified_at: now,
+
+    id_rejected: false,
+    id_rejection_reason: null,
+  };
+
+  const updatedUser = await prisma.user.update({
+    where: { id },
+
+    data: {
+      // Overall ID status
+      id_status: "approved",
+
+      // Optional reason/notes
+      id_status_reason: notes || null,
+
+      // Individual image statuses
+      id_image_statuses: updatedImageStatuses,
+
+      // Host verification information
+      host_details: updatedHostDetails,
+    },
+
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone_number: true,
+      role: true,
+      status: true,
+
+      id_status: true,
+      id_status_reason: true,
+      id_images: true,
+      id_image_statuses: true,
+
+      host_details: true,
+    },
+  });
+
+  // Clear cache
+  await redisHelpers.del(`user:${id}`);
+  await redisHelpers.del("admin:stats");
+
+  res.status(200).json({
+    success: true,
+    message: "ID approved successfully",
+    user: updatedUser,
+  });
+});
+
+
+// @desc    Reject user's ID verification
+// @route   PUT /api/v1/admin/users/:id/id/reject
+// @access  Private (Admin/Super Admin)
+const rejectUserId = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body;
+
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({
+      success: false,
+      message: "ID rejection reason is required",
+    });
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id },
+  });
+
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: "User not found",
+    });
+  }
+
+  if (!user.id_images || user.id_images.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "User has not uploaded any ID images",
+    });
+  }
+
+  if (user.id_status === "rejected") {
+    return res.status(400).json({
+      success: false,
+      message: "ID is already rejected",
+    });
+  }
+
+  const now = new Date();
+
+  // Update individual image statuses
+  const currentImageStatuses = user.id_image_statuses || {};
+
+  const updatedImageStatuses = {};
+
+  user.id_images.forEach((imageUrl) => {
+    updatedImageStatuses[imageUrl] = {
+      status: "rejected",
+      updated_at: now.toISOString(),
+      reason: reason.trim(),
+    };
+  });
+
+  // Update host details
+  const hostDetails = user.host_details || {};
+
+  const updatedHostDetails = {
+    ...hostDetails,
+
+    id_verified: false,
+    id_verified_at: null,
+
+    id_rejected: true,
+    id_rejection_reason: reason.trim(),
+  };
+
+  const updatedUser = await prisma.user.update({
+    where: { id },
+
+    data: {
+      // Overall ID status
+      id_status: "rejected",
+
+      // Rejection reason
+      id_status_reason: reason.trim(),
+
+      // Individual image statuses
+      id_image_statuses: updatedImageStatuses,
+
+      // Host verification information
+      host_details: updatedHostDetails,
+    },
+
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone_number: true,
+      role: true,
+      status: true,
+
+      id_status: true,
+      id_status_reason: true,
+      id_images: true,
+      id_image_statuses: true,
+
+      host_details: true,
+    },
+  });
+
+  // Clear cache
+  await redisHelpers.del(`user:${id}`);
+  await redisHelpers.del("admin:stats");
+
+  res.status(200).json({
+    success: true,
+    message: "ID rejected successfully",
+    user: updatedUser,
+  });
+});
+
+
+// @desc    Set user's ID verification back to pending
+// @route   PUT /api/v1/admin/users/:id/id/pending
+// @access  Private (Admin/Super Admin)
+const setUserIdPending = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body;
+
+  const user = await prisma.user.findUnique({
+    where: { id },
+  });
+
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: "User not found",
+    });
+  }
+
+  if (!user.id_images || user.id_images.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "User has not uploaded any ID images",
+    });
+  }
+
+  const now = new Date();
+
+  const updatedImageStatuses = {};
+
+  user.id_images.forEach((imageUrl) => {
+    updatedImageStatuses[imageUrl] = {
+      status: "pending",
+      updated_at: now.toISOString(),
+      reason: reason || null,
+    };
+  });
+
+  const hostDetails = user.host_details || {};
+
+  const updatedHostDetails = {
+    ...hostDetails,
+
+    id_verified: false,
+    id_verified_at: null,
+
+    id_rejected: false,
+    id_rejection_reason: null,
+  };
+
+  const updatedUser = await prisma.user.update({
+    where: { id },
+
+    data: {
+      id_status: "pending",
+
+      id_status_reason: reason || null,
+
+      id_image_statuses: updatedImageStatuses,
+
+      host_details: updatedHostDetails,
+    },
+
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone_number: true,
+      role: true,
+      status: true,
+
+      id_status: true,
+      id_status_reason: true,
+      id_images: true,
+      id_image_statuses: true,
+
+      host_details: true,
+    },
+  });
+
+  await redisHelpers.del(`user:${id}`);
+  await redisHelpers.del("admin:stats");
+
+  res.status(200).json({
+    success: true,
+    message: "ID status changed to pending",
+    user: updatedUser,
+  });
+});
 
 module.exports = {
   getStats,
@@ -1472,4 +1780,7 @@ module.exports = {
   approvePayment,
   rejectPayment,
   getPaymentStats,
+  setUserIdPending,
+  approveUserId,
+  rejectUserId,
 };

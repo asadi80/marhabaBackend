@@ -190,4 +190,30 @@ router.put(
   adminController.rejectPayment,
 );
 
+router.put(
+  "/doc/:userId/reject",
+  authorize("admin", "super_admin"),
+  commonValidators.id("paymentId"),
+  handleValidationErrors,
+  adminController.rejectUserId
+);
+
+router.put(
+  "/doc/:userId/pending",
+  authorize("admin", "super_admin"),
+  commonValidators.id("paymentId"),
+  handleValidationErrors,
+  adminController.setUserIdPending
+);
+
+router.put(
+  "/doc/:userId/approve",
+  authorize("admin", "super_admin"),
+  commonValidators.id("paymentId"),
+  handleValidationErrors,
+  adminController.approveUserId
+);
+
+
+
 module.exports = router;
