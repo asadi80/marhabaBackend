@@ -55,26 +55,20 @@ model User {
   @@index([email_verified])
 }
 
-
 model UserIdDocument {
   id String @id @default(uuid()) @db.Uuid
 
-  // Owner
   user_id String @db.Uuid
 
-  // Document information
   document_type String @default("national_id") @db.VarChar(50)
   side          String @default("front") @db.VarChar(20)
 
-  // Uploaded file
   file_url  String @db.Text
   file_name String? @db.VarChar(255)
   file_type String? @db.VarChar(100)
 
-  // Verification status
   status String @default("pending") @db.VarChar(20)
 
-  // Admin review
   rejection_reason String? @db.Text
   admin_notes      String? @db.Text
 
@@ -84,21 +78,8 @@ model UserIdDocument {
   created_at DateTime @default(now()) @db.Timestamp
   updated_at DateTime @default(now()) @updatedAt @db.Timestamp
 
-  // User who owns this document
-  user User @relation(
-    "user_id_documents",
-    fields: [user_id],
-    references: [id],
-    onDelete: Cascade
-  )
-
-  // Admin who reviewed this document
-  reviewer User? @relation(
-    "id_document_reviewer",
-    fields: [reviewed_by],
-    references: [id],
-    onDelete: SetNull
-  )
+  user     User  @relation("user_id_documents", fields: [user_id], references: [id], onDelete: Cascade)
+  reviewer User? @relation("id_document_reviewer", fields: [reviewed_by], references: [id], onDelete: SetNull)
 
   @@index([user_id])
   @@index([status])
