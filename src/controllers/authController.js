@@ -10,9 +10,7 @@ const { asyncHandler } = require("../middleware/errorHandler");
 const { maskSensitiveData } = require("../utils/helpers");
 const emailService = require("../services/emailService");
 
-
-
-console.log('✅ AuthController loaded, prisma type:', typeof prisma);
+console.log("✅ AuthController loaded, prisma type:", typeof prisma);
 
 // @desc    Register user
 // @route   POST /api/v1/auth/register
@@ -82,7 +80,7 @@ const login = asyncHandler(async (req, res) => {
     if (result.user.role === "host") {
       const hostDetails = result.user.host_details || {};
       const latestPayment = result.user.host_subscription_payments?.[0] || null;
-      
+
       verificationStatus = {
         id: {
           uploaded: result.user.id_images && result.user.id_images.length > 0,
@@ -92,8 +90,11 @@ const login = asyncHandler(async (req, res) => {
           rejection_reason: hostDetails.id_rejection_reason || null,
         },
         payment: {
-          uploaded: latestPayment && latestPayment.receipt_images && latestPayment.receipt_images.length > 0,
-          status: latestPayment ? latestPayment.status : 'pending',
+          uploaded:
+            latestPayment &&
+            latestPayment.receipt_images &&
+            latestPayment.receipt_images.length > 0,
+          status: latestPayment ? latestPayment.status : "pending",
           amount: latestPayment ? latestPayment.amount : null,
           submitted_at: latestPayment ? latestPayment.created_at : null,
           approved_at: hostDetails.payment_verified_at || null,
@@ -187,7 +188,7 @@ const verifyEmail = asyncHandler(async (req, res) => {
     if (!token) {
       console.log("❌ No verification token received");
       return res.redirect(
-        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token`
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token`,
       );
     }
 
@@ -200,20 +201,20 @@ const verifyEmail = asyncHandler(async (req, res) => {
     // Handle different error cases
     if (result.error === "token-expired") {
       return res.redirect(
-        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?status=expired&email=${encodeURIComponent(result.user?.email || '')}&message=Your verification link has expired. Please request a new one.`
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?status=expired&email=${encodeURIComponent(result.user?.email || "")}&message=Your verification link has expired. Please request a new one.`,
       );
     }
-    
+
     if (result.error === "already-verified") {
       // Redirect to login with already verified message
       return res.redirect(
-        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?status=already-verified&email=${encodeURIComponent(result.user?.email || '')}&message=Email is already verified. You can login now.`
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?status=already-verified&email=${encodeURIComponent(result.user?.email || "")}&message=Email is already verified. You can login now.`,
       );
     }
-    
+
     if (result.error === "invalid-token") {
       return res.redirect(
-        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token&message=Invalid verification link. Please request a new one.`
+        `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=invalid-token&message=Invalid verification link. Please request a new one.`,
       );
     }
 
@@ -224,19 +225,18 @@ const verifyEmail = asyncHandler(async (req, res) => {
       const redirectUrl =
         `${process.env.FRONTEND_URL || "https://mar-haba.ly"}` +
         `/verification-result?status=success&email=${encodeURIComponent(result.user.email)}&name=${encodeURIComponent(result.user.name)}&role=${encodeURIComponent(result.user.role)}&redirect=/login`;
-      
+
       return res.redirect(redirectUrl);
     }
 
     // Fallback
     return res.redirect(
-      `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=unknown`
+      `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=unknown`,
     );
-
   } catch (error) {
     console.error("❌ Email verification error:", error);
     return res.redirect(
-      `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=server-error&message=${encodeURIComponent(error.message)}`
+      `${process.env.FRONTEND_URL || "https://mar-haba.ly"}/verification-result?error=server-error&message=${encodeURIComponent(error.message)}`,
     );
   }
 });
@@ -423,7 +423,7 @@ const addIdImage = asyncHandler(async (req, res) => {
   if (!req.body.url) {
     return res.status(400).json({
       success: false,
-      message: 'Image URL is required',
+      message: "Image URL is required",
     });
   }
 
@@ -449,7 +449,7 @@ const addIdImage = asyncHandler(async (req, res) => {
 
   return res.status(200).json({
     success: true,
-    message: 'ID image added successfully',
+    message: "ID image added successfully",
     user,
   });
 });
@@ -464,9 +464,15 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: {
+        user_id_documents: {
+          orderBy: {
+            created_at: "desc",
+          },
+        },
+
         host_subscription_payments: {
           orderBy: {
-            created_at: 'desc',
+            created_at: "desc",
           },
           take: 1,
         },
@@ -476,12 +482,12 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: "User not found",
       });
     }
 
     // If user is not a host, return a basic response
-    if (user.role !== 'host') {
+    if (user.role !== "host") {
       return res.status(200).json({
         success: true,
         data: {
@@ -494,7 +500,7 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
           },
           payment: {
             uploaded: false,
-            status: 'pending',
+            status: "pending",
             amount: null,
             submitted_at: null,
             approved_at: null,
@@ -511,10 +517,10 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
 
     // Check if payment is rejected from host_details
     const paymentRejected = hostDetails.payment_rejected || false;
-    const paymentStatus = latestPayment ? latestPayment.status : 'pending';
+    const paymentStatus = latestPayment ? latestPayment.status : "pending";
 
     // If payment is rejected in host_details but status is still pending, update it
-    const finalPaymentStatus = paymentRejected ? 'rejected' : paymentStatus;
+    const finalPaymentStatus = paymentRejected ? "rejected" : paymentStatus;
 
     const verificationStatus = {
       id: {
@@ -525,7 +531,10 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
         rejection_reason: hostDetails.id_rejection_reason || null,
       },
       payment: {
-        uploaded: latestPayment && latestPayment.receipt_images && latestPayment.receipt_images.length > 0,
+        uploaded:
+          latestPayment &&
+          latestPayment.receipt_images &&
+          latestPayment.receipt_images.length > 0,
         status: finalPaymentStatus,
         amount: latestPayment ? latestPayment.amount : null,
         submitted_at: latestPayment ? latestPayment.created_at : null,
@@ -541,11 +550,11 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
       data: verificationStatus,
     });
   } catch (error) {
-    console.error('❌ Error fetching host verification status:', error);
+    console.error("❌ Error fetching host verification status:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch verification status',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      message: "Failed to fetch verification status",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 });
