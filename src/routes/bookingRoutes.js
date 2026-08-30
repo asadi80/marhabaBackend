@@ -17,7 +17,7 @@ router.post('/check-availability', apiLimiter, bookingController.checkAvailabili
 router.use(protect);
 
 // Get bookings for current user
-router.get('/my', bookingController.getMyBookings);
+router.get('/my-booking', bookingController.getMyBookings);
 
 // Get host bookings (host only)
 router.get('/host', isHost, bookingController.getHostBookings);
