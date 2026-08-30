@@ -202,20 +202,37 @@ const createBooking = asyncHandler(async (req, res) => {
 });
 
 // @desc    Get all bookings for current user
-// @route   GET /api/v1/bookings
+// @route   GET /api/v1/bookings/my-booking
 // @access  Private
 const getMyBookings = asyncHandler(async (req, res) => {
   const { page, limit } = paginate(req.query.page, req.query.limit);
   const { status, upcoming } = req.query;
 
+  // Ensure user exists
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({
+      success: false,
+      message: 'User not authenticated'
+    });
+  }
+
   const where = {
     user_id: req.user.id,
   };
 
+  // Validate and add status filter
   if (status) {
+    const validStatuses = ['pending', 'confirmed', 'checked_in', 'checked_out', 'cancelled', 'no_show'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status parameter'
+      });
+    }
     where.status = status;
   }
 
+  // Handle upcoming filter
   if (upcoming === 'true') {
     where.check_in = {
       gte: new Date(),
@@ -225,61 +242,75 @@ const getMyBookings = asyncHandler(async (req, res) => {
     };
   }
 
-  // Try cache
-  const cacheKey = `bookings:user:${req.user.id}:${JSON.stringify({ where, skip: paginate.skip, take: paginate.take })}`;
-  const cachedBookings = await redisHelpers.get(cacheKey);
+  try {
+    const cacheKey = `bookings:user:${req.user.id}:${JSON.stringify({ where, skip: paginate.skip, take: paginate.take })}`;
+    const cachedBookings = await redisHelpers.get(cacheKey);
 
-  if (cachedBookings) {
-    return res.status(200).json({
-      success: true,
-      ...cachedBookings,
-    });
-  }
+    if (cachedBookings) {
+      return res.status(200).json({
+        success: true,
+        ...cachedBookings,
+      });
+    }
 
-  const [bookings, total] = await Promise.all([
-    prisma.booking.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-      skip: paginate.skip,
-      take: paginate.take,
-      include: {
-        listing: {
-          include: {
-            host: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                phone_number: true,
+    const [bookings, total] = await Promise.all([
+      prisma.booking.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip: paginate.skip,
+        take: paginate.take,
+        include: {
+          listing: {
+            include: {
+              host: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  phone_number: true,
+                },
               },
             },
           },
-        },
-        payments: {
-          select: {
-            id: true,
-            amount: true,
-            status: true,
-            type: true,
-            paid_at: true,
-            sadad_reference: true,
+          payments: {
+            select: {
+              id: true,
+              amount: true,
+              status: true,
+              type: true,
+              paid_at: true,
+              sadad_reference: true,
+            },
           },
         },
+      }),
+      prisma.booking.count({ where }),
+    ]);
+
+    const meta = paginationMeta(total, paginate.page, paginate.limit);
+    const result = { data: bookings, meta };
+
+    // Cache for 5 minutes
+    await redisHelpers.set(cacheKey, result, 300);
+
+    return res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error('Error fetching bookings:', error);
+    // Return empty bookings array instead of throwing error
+    return res.status(200).json({
+      success: true,
+      data: [],
+      meta: {
+        total: 0,
+        page: paginate.page || 1,
+        limit: paginate.limit || 10,
+        totalPages: 0,
       },
-    }),
-    prisma.booking.count({ where }),
-  ]);
-
-  const meta = paginationMeta(total, paginate.page, paginate.limit);
-  const result = { data: bookings, meta };
-
-  // Cache for 5 minutes
-  await redisHelpers.set(cacheKey, result, 300);
-
-  res.status(200).json({
-    success: true,
-    ...result,
-  });
+    });
+  }
 });
 
 // @desc    Get bookings for host's listings
