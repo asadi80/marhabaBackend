@@ -403,19 +403,7 @@ const getBooking = asyncHandler(async (req, res) => {
           phone_number: true,
         },
       },
-      payments: {
-        select: {
-          id: true,
-          amount: true,
-          status: true,
-          type: true,
-          paid_at: true,
-          sadad_reference: true,
-          sadad_transaction_id: true,
-          notes: true,
-          created_at: true,
-        },
-      },
+      // REMOVED: payments (doesn't exist in schema)
     },
   });
 
