@@ -99,13 +99,7 @@ const getStats = asyncHandler(async (req, res) => {
 // @route   GET /api/v1/admin/users
 // @access  Private (Admin/Super Admin)
 const getUsers = asyncHandler(async (req, res) => {
-  const {
-    role,
-    status,
-    search,
-    page = 1,
-    limit = 50,
-  } = req.query;
+  const { role, status, search, page = 1, limit = 50 } = req.query;
 
   const pageNumber = parseInt(page);
   const limitNumber = parseInt(limit);
@@ -207,28 +201,24 @@ const getUsers = asyncHandler(async (req, res) => {
     }),
   ]);
 
-  const [
-    usersCount,
-    hostsCount,
-    adminsCount,
-    superAdminsCount,
-  ] = await Promise.all([
-    prisma.user.count({
-      where: { role: "user" },
-    }),
+  const [usersCount, hostsCount, adminsCount, superAdminsCount] =
+    await Promise.all([
+      prisma.user.count({
+        where: { role: "user" },
+      }),
 
-    prisma.user.count({
-      where: { role: "host" },
-    }),
+      prisma.user.count({
+        where: { role: "host" },
+      }),
 
-    prisma.user.count({
-      where: { role: "admin" },
-    }),
+      prisma.user.count({
+        where: { role: "admin" },
+      }),
 
-    prisma.user.count({
-      where: { role: "super_admin" },
-    }),
-  ]);
+      prisma.user.count({
+        where: { role: "super_admin" },
+      }),
+    ]);
 
   res.status(200).json({
     success: true,
@@ -291,6 +281,11 @@ const getUserById = asyncHandler(async (req, res) => {
           },
         },
       },
+      id_documents: {
+        orderBy: {
+          created_at: "desc",
+        },
+      },
 
       host_subscription_payments: {
         orderBy: {
@@ -319,14 +314,7 @@ const getUserById = asyncHandler(async (req, res) => {
 const updateUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  const {
-    name,
-    email,
-    phone_number,
-    role,
-    status,
-    status_reason,
-  } = req.body;
+  const { name, email, phone_number, role, status, status_reason } = req.body;
 
   const existingUser = await prisma.user.findUnique({
     where: { id },
@@ -340,10 +328,7 @@ const updateUser = asyncHandler(async (req, res) => {
   }
 
   // Only super admins can modify super admin accounts.
-  if (
-    existingUser.role === "super_admin" &&
-    req.user.role !== "super_admin"
-  ) {
+  if (existingUser.role === "super_admin" && req.user.role !== "super_admin") {
     return res.status(403).json({
       success: false,
       message: "Only super admins can modify super admin accounts",
@@ -365,10 +350,7 @@ const updateUser = asyncHandler(async (req, res) => {
   }
 
   // Only super admin can change roles.
-  if (
-    role !== undefined &&
-    req.user.role === "super_admin"
-  ) {
+  if (role !== undefined && req.user.role === "super_admin") {
     updateData.role = role;
   }
 
@@ -391,18 +373,14 @@ const updateUser = asyncHandler(async (req, res) => {
     // PENDING -> CONFIRMED
     // --------------------------------------------------------
 
-    if (
-      status === "confirmed" &&
-      previousStatus !== "confirmed"
-    ) {
+    if (status === "confirmed" && previousStatus !== "confirmed") {
       const now = new Date();
 
       const expiryDate = new Date(now);
       expiryDate.setMonth(expiryDate.getMonth() + 6);
 
       const daysUntilExpiry = Math.ceil(
-        (expiryDate.getTime() - now.getTime()) /
-          (1000 * 60 * 60 * 24)
+        (expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
       );
 
       updateData.host_details = {
@@ -414,35 +392,24 @@ const updateUser = asyncHandler(async (req, res) => {
       };
 
       try {
-        const emailResult =
-          await emailService.sendHostConfirmationEmail(
-            existingUser,
-            expiryDate,
-            daysUntilExpiry
-          );
+        const emailResult = await emailService.sendHostConfirmationEmail(
+          existingUser,
+          expiryDate,
+          daysUntilExpiry,
+        );
 
         if (!emailResult.success) {
-          console.error(
-            "Host confirmation email failed:",
-            emailResult.error
-          );
+          console.error("Host confirmation email failed:", emailResult.error);
         }
       } catch (emailError) {
-        console.error(
-          "Host confirmation email exception:",
-          emailError
-        );
+        console.error("Host confirmation email exception:", emailError);
       }
     }
 
     // --------------------------------------------------------
     // -> PENDING
     // --------------------------------------------------------
-
-    else if (
-      status === "pending" &&
-      previousStatus !== "pending"
-    ) {
+    else if (status === "pending" && previousStatus !== "pending") {
       updateData.host_details = {
         ...(existingUser.host_details || {}),
 
@@ -453,98 +420,68 @@ const updateUser = asyncHandler(async (req, res) => {
       };
 
       const adminEmails = process.env.ADMIN_EMAILS
-        ? process.env.ADMIN_EMAILS
-            .split(",")
+        ? process.env.ADMIN_EMAILS.split(",")
             .map((email) => email.trim())
             .filter(Boolean)
         : [];
 
       try {
-        const emailResult =
-          await emailService.sendHostPendingApproval(
-            existingUser,
-            adminEmails
-          );
+        const emailResult = await emailService.sendHostPendingApproval(
+          existingUser,
+          adminEmails,
+        );
 
         if (!emailResult.success) {
           console.error(
             "Host pending approval email failed:",
-            emailResult.error
+            emailResult.error,
           );
         }
       } catch (emailError) {
-        console.error(
-          "Host pending approval email exception:",
-          emailError
-        );
+        console.error("Host pending approval email exception:", emailError);
       }
     }
 
     // --------------------------------------------------------
     // -> SUSPENDED
     // --------------------------------------------------------
-
-    else if (
-      status === "suspended" &&
-      previousStatus !== "suspended"
-    ) {
+    else if (status === "suspended" && previousStatus !== "suspended") {
       try {
-        const emailResult =
-          await emailService.sendHostSuspensionEmail(
-            existingUser.email,
-            existingUser.name,
-            status_reason ||
-              "Violation of terms of service"
-          );
+        const emailResult = await emailService.sendHostSuspensionEmail(
+          existingUser.email,
+          existingUser.name,
+          status_reason || "Violation of terms of service",
+        );
 
         if (!emailResult.success) {
-          console.error(
-            "Host suspension email failed:",
-            emailResult.error
-          );
+          console.error("Host suspension email failed:", emailResult.error);
         }
       } catch (emailError) {
-        console.error(
-          "Host suspension email exception:",
-          emailError
-        );
+        console.error("Host suspension email exception:", emailError);
       }
     }
 
     // --------------------------------------------------------
     // SUSPENDED -> ACTIVE STATUS
     // --------------------------------------------------------
-
-    else if (
-      previousStatus === "suspended" &&
-      status !== "suspended"
-    ) {
+    else if (previousStatus === "suspended" && status !== "suspended") {
       try {
-        const emailResult =
-          await emailService.sendHostReactivationEmail(
-            existingUser,
-            status_reason ||
-              "Account has been reactivated"
-          );
+        const emailResult = await emailService.sendHostReactivationEmail(
+          existingUser,
+          status_reason || "Account has been reactivated",
+        );
 
         if (!emailResult.success) {
-          console.error(
-            "Host reactivation email failed:",
-            emailResult.error
-          );
+          console.error("Host reactivation email failed:", emailResult.error);
         }
       } catch (emailError) {
-        console.error(
-          "Host reactivation email exception:",
-          emailError
-        );
+        console.error("Host reactivation email exception:", emailError);
       }
     }
 
     // --------------------------------------------------------
     // PENDING -> OTHER
     // --------------------------------------------------------
-
     else if (
       previousStatus === "pending" &&
       status !== "pending" &&
@@ -605,8 +542,7 @@ const updateUser = asyncHandler(async (req, res) => {
     if (error.code === "P2002") {
       return res.status(400).json({
         success: false,
-        message:
-          "Email or phone number is already being used",
+        message: "Email or phone number is already being used",
       });
     }
 
@@ -656,8 +592,7 @@ const deleteUser = asyncHandler(async (req, res) => {
     if (req.user.role !== "super_admin") {
       return res.status(403).json({
         success: false,
-        message:
-          "Only super admins can delete super admin accounts",
+        message: "Only super admins can delete super admin accounts",
       });
     }
   }
@@ -679,55 +614,45 @@ const deleteUser = asyncHandler(async (req, res) => {
       },
     });
 
-    const listingIds = userListings.map(
-      (listing) => listing.id
-    );
+    const listingIds = userListings.map((listing) => listing.id);
 
     let deletedBookingsCount = 0;
 
     // Remove blocked-user records related to this user/listings.
     await tx.hostBlockedUser.deleteMany({
       where: {
-        OR: [
-          { host_id: id },
-          { user_id: id },
-        ],
+        OR: [{ host_id: id }, { user_id: id }],
       },
     });
 
     // Delete bookings belonging to listings.
     if (listingIds.length > 0) {
-      const deletedHostBookings =
-        await tx.booking.deleteMany({
-          where: {
-            listing_id: {
-              in: listingIds,
-            },
+      const deletedHostBookings = await tx.booking.deleteMany({
+        where: {
+          listing_id: {
+            in: listingIds,
           },
-        });
+        },
+      });
 
-      deletedBookingsCount +=
-        deletedHostBookings.count;
+      deletedBookingsCount += deletedHostBookings.count;
     }
 
     // Delete bookings where user is guest.
-    const deletedGuestBookings =
-      await tx.booking.deleteMany({
-        where: {
-          user_id: id,
-        },
-      });
+    const deletedGuestBookings = await tx.booking.deleteMany({
+      where: {
+        user_id: id,
+      },
+    });
 
-    deletedBookingsCount +=
-      deletedGuestBookings.count;
+    deletedBookingsCount += deletedGuestBookings.count;
 
     // Delete listings.
-    const deletedListings =
-      await tx.listing.deleteMany({
-        where: {
-          host_id: id,
-        },
-      });
+    const deletedListings = await tx.listing.deleteMany({
+      where: {
+        host_id: id,
+      },
+    });
 
     // UserIdDocument has onDelete: Cascade.
     // UserSession has onDelete: Cascade.
@@ -792,14 +717,10 @@ const deleteDashboardUser = asyncHandler(async (req, res) => {
     });
   }
 
-  if (
-    user.role === "super_admin" &&
-    req.user.role !== "super_admin"
-  ) {
+  if (user.role === "super_admin" && req.user.role !== "super_admin") {
     return res.status(403).json({
       success: false,
-      message:
-        "Only super admins can delete super admin accounts",
+      message: "Only super admins can delete super admin accounts",
     });
   }
 
@@ -821,51 +742,41 @@ const deleteDashboardUser = asyncHandler(async (req, res) => {
       },
     });
 
-    const listingIds = userListings.map(
-      (listing) => listing.id
-    );
+    const listingIds = userListings.map((listing) => listing.id);
 
     let deletedBookingsCount = 0;
 
     await tx.hostBlockedUser.deleteMany({
       where: {
-        OR: [
-          { host_id: id },
-          { user_id: id },
-        ],
+        OR: [{ host_id: id }, { user_id: id }],
       },
     });
 
     if (listingIds.length > 0) {
-      const deletedHostBookings =
-        await tx.booking.deleteMany({
-          where: {
-            listing_id: {
-              in: listingIds,
-            },
+      const deletedHostBookings = await tx.booking.deleteMany({
+        where: {
+          listing_id: {
+            in: listingIds,
           },
-        });
+        },
+      });
 
-      deletedBookingsCount +=
-        deletedHostBookings.count;
+      deletedBookingsCount += deletedHostBookings.count;
     }
 
-    const deletedGuestBookings =
-      await tx.booking.deleteMany({
-        where: {
-          user_id: id,
-        },
-      });
+    const deletedGuestBookings = await tx.booking.deleteMany({
+      where: {
+        user_id: id,
+      },
+    });
 
-    deletedBookingsCount +=
-      deletedGuestBookings.count;
+    deletedBookingsCount += deletedGuestBookings.count;
 
-    const deletedListings =
-      await tx.listing.deleteMany({
-        where: {
-          host_id: id,
-        },
-      });
+    const deletedListings = await tx.listing.deleteMany({
+      where: {
+        host_id: id,
+      },
+    });
 
     const deletedUser = await tx.user.delete({
       where: {
@@ -1178,15 +1089,9 @@ const approveHost = asyncHandler(async (req, res) => {
   });
 
   try {
-    await emailService.sendHostApprovalEmail(
-      user.email,
-      user.name
-    );
+    await emailService.sendHostApprovalEmail(user.email, user.name);
   } catch (error) {
-    console.error(
-      "Host approval email failed:",
-      error
-    );
+    console.error("Host approval email failed:", error);
   }
 
   await redisHelpers.del(`user:${id}`);
@@ -1200,8 +1105,7 @@ const approveHost = asyncHandler(async (req, res) => {
       id: updatedUser.id,
       name: updatedUser.name,
       status: updatedUser.status,
-      host_expiry_date:
-        updatedUser.host_expiry_date,
+      host_expiry_date: updatedUser.host_expiry_date,
     },
   });
 });
@@ -1231,9 +1135,7 @@ const rejectHost = asyncHandler(async (req, res) => {
     });
   }
 
-  const rejectionReason =
-    reason?.trim() ||
-    "Host application rejected";
+  const rejectionReason = reason?.trim() || "Host application rejected";
 
   await prisma.user.update({
     where: { id },
@@ -1256,13 +1158,10 @@ const rejectHost = asyncHandler(async (req, res) => {
     await emailService.sendHostRejectionEmail(
       user.email,
       user.name,
-      rejectionReason
+      rejectionReason,
     );
   } catch (error) {
-    console.error(
-      "Host rejection email failed:",
-      error
-    );
+    console.error("Host rejection email failed:", error);
   }
 
   await redisHelpers.del(`user:${id}`);
@@ -1282,18 +1181,12 @@ const rejectHost = asyncHandler(async (req, res) => {
 // @route   GET /api/v1/admin/listings
 // @access  Private (Admin/Super Admin)
 const getAllListings = asyncHandler(async (req, res) => {
-  const {
-    status,
-    search,
-    page = 1,
-    limit = 20,
-  } = req.query;
+  const { status, search, page = 1, limit = 20 } = req.query;
 
   const pageNumber = parseInt(page);
   const limitNumber = parseInt(limit);
 
-  const skip =
-    (pageNumber - 1) * limitNumber;
+  const skip = (pageNumber - 1) * limitNumber;
 
   const filter = {};
 
@@ -1324,53 +1217,52 @@ const getAllListings = asyncHandler(async (req, res) => {
     ];
   }
 
-  const [listings, total] =
-    await Promise.all([
-      prisma.listing.findMany({
-        where: filter,
+  const [listings, total] = await Promise.all([
+    prisma.listing.findMany({
+      where: filter,
 
-        include: {
-          host: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone_number: true,
-              status: true,
-            },
-          },
-
-          bookings: {
-            where: {
-              status: "confirmed",
-            },
-
-            select: {
-              id: true,
-              check_in: true,
-              check_out: true,
-            },
-          },
-
-          _count: {
-            select: {
-              bookings: true,
-            },
+      include: {
+        host: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone_number: true,
+            status: true,
           },
         },
 
-        orderBy: {
-          created_at: "desc",
+        bookings: {
+          where: {
+            status: "confirmed",
+          },
+
+          select: {
+            id: true,
+            check_in: true,
+            check_out: true,
+          },
         },
 
-        skip,
-        take: limitNumber,
-      }),
+        _count: {
+          select: {
+            bookings: true,
+          },
+        },
+      },
 
-      prisma.listing.count({
-        where: filter,
-      }),
-    ]);
+      orderBy: {
+        created_at: "desc",
+      },
+
+      skip,
+      take: limitNumber,
+    }),
+
+    prisma.listing.count({
+      where: filter,
+    }),
+  ]);
 
   res.status(200).json({
     success: true,
@@ -1381,9 +1273,7 @@ const getAllListings = asyncHandler(async (req, res) => {
       page: pageNumber,
       limit: limitNumber,
       total,
-      pages: Math.ceil(
-        total / limitNumber
-      ),
+      pages: Math.ceil(total / limitNumber),
     },
   });
 });
@@ -1419,9 +1309,7 @@ const deleteListing = asyncHandler(async (req, res) => {
     await tx.hostBlockedUser.deleteMany({
       where: {
         booking_id: {
-          in: listing.bookings.map(
-            (booking) => booking.id
-          ),
+          in: listing.bookings.map((booking) => booking.id),
         },
       },
     });
@@ -1472,39 +1360,33 @@ const getUserReport = asyncHandler(async (req, res) => {
     dateFilter.lte = new Date(endDate);
   }
 
-  const [users, totalUsers] =
-    await Promise.all([
-      prisma.user.groupBy({
-        by: ["role", "status"],
+  const [users, totalUsers] = await Promise.all([
+    prisma.user.groupBy({
+      by: ["role", "status"],
 
-        _count: {
-          id: true,
-        },
+      _count: {
+        id: true,
+      },
 
-        where: {
-          created_at: dateFilter,
-        },
-      }),
+      where: {
+        created_at: dateFilter,
+      },
+    }),
 
-      prisma.user.count({
-        where: {
-          created_at: dateFilter,
-        },
-      }),
-    ]);
+    prisma.user.count({
+      where: {
+        created_at: dateFilter,
+      },
+    }),
+  ]);
 
   const thirtyDaysAgo = new Date();
 
-  thirtyDaysAgo.setDate(
-    thirtyDaysAgo.getDate() - 30
-  );
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const reportStartDate = startDate
-    ? new Date(startDate)
-    : thirtyDaysAgo;
+  const reportStartDate = startDate ? new Date(startDate) : thirtyDaysAgo;
 
-  const newUsersByDay =
-    await prisma.$queryRaw`
+  const newUsersByDay = await prisma.$queryRaw`
       SELECT
         DATE(created_at) as date,
         COUNT(*) as count
@@ -1512,9 +1394,7 @@ const getUserReport = asyncHandler(async (req, res) => {
       WHERE created_at >= ${reportStartDate}
       ${
         endDate
-          ? prisma.$queryRaw`AND created_at <= ${new Date(
-              endDate
-            )}`
+          ? prisma.$queryRaw`AND created_at <= ${new Date(endDate)}`
           : prisma.$queryRaw``
       }
       GROUP BY DATE(created_at)
@@ -1550,53 +1430,44 @@ const getRevenueReport = asyncHandler(async (req, res) => {
   switch (period) {
     case "week":
       startDate = new Date(now);
-      startDate.setDate(
-        startDate.getDate() - 7
-      );
+      startDate.setDate(startDate.getDate() - 7);
       break;
 
     case "month":
       startDate = new Date(now);
-      startDate.setMonth(
-        startDate.getMonth() - 1
-      );
+      startDate.setMonth(startDate.getMonth() - 1);
       break;
 
     case "year":
       startDate = new Date(now);
-      startDate.setFullYear(
-        startDate.getFullYear() - 1
-      );
+      startDate.setFullYear(startDate.getFullYear() - 1);
       break;
 
     default:
       startDate = new Date(now);
-      startDate.setMonth(
-        startDate.getMonth() - 1
-      );
+      startDate.setMonth(startDate.getMonth() - 1);
   }
 
-  const [revenue, revenueByDay] =
-    await Promise.all([
-      prisma.booking.aggregate({
-        _sum: {
-          total_price: true,
+  const [revenue, revenueByDay] = await Promise.all([
+    prisma.booking.aggregate({
+      _sum: {
+        total_price: true,
+      },
+
+      _count: {
+        id: true,
+      },
+
+      where: {
+        status: "confirmed",
+
+        created_at: {
+          gte: startDate,
         },
+      },
+    }),
 
-        _count: {
-          id: true,
-        },
-
-        where: {
-          status: "confirmed",
-
-          created_at: {
-            gte: startDate,
-          },
-        },
-      }),
-
-      prisma.$queryRaw`
+    prisma.$queryRaw`
         SELECT
           DATE(created_at) as date,
           SUM(total_price) as revenue,
@@ -1607,17 +1478,15 @@ const getRevenueReport = asyncHandler(async (req, res) => {
         GROUP BY DATE(created_at)
         ORDER BY DATE(created_at) DESC
       `,
-    ]);
+  ]);
 
   res.status(200).json({
     success: true,
 
     data: {
-      totalRevenue:
-        revenue._sum.total_price || 0,
+      totalRevenue: revenue._sum.total_price || 0,
 
-      totalBookings:
-        revenue._count.id || 0,
+      totalBookings: revenue._count.id || 0,
 
       period,
 
@@ -1634,12 +1503,7 @@ const getRevenueReport = asyncHandler(async (req, res) => {
 // @route   GET /api/v1/admin/payments
 // @access  Private (Admin/Super Admin)
 const getPayments = asyncHandler(async (req, res) => {
-  const {
-    status,
-    host_id,
-    page = 1,
-    limit = 20,
-  } = req.query;
+  const { status, host_id, page = 1, limit = 20 } = req.query;
 
   const pageNumber = parseInt(page);
   const limitNumber = parseInt(limit);
@@ -1654,67 +1518,11 @@ const getPayments = asyncHandler(async (req, res) => {
     where.host_id = host_id;
   }
 
-  const skip =
-    (pageNumber - 1) * limitNumber;
+  const skip = (pageNumber - 1) * limitNumber;
 
-  const [payments, total] =
-    await Promise.all([
-      prisma.hostSubscriptionPayment.findMany({
-        where,
-
-        include: {
-          host: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone_number: true,
-              role: true,
-              status: true,
-            },
-          },
-        },
-
-        orderBy: {
-          created_at: "desc",
-        },
-
-        skip,
-        take: limitNumber,
-      }),
-
-      prisma.hostSubscriptionPayment.count({
-        where,
-      }),
-    ]);
-
-  res.status(200).json({
-    success: true,
-
-    data: payments,
-
-    pagination: {
-      page: pageNumber,
-      limit: limitNumber,
-      total,
-      pages: Math.ceil(
-        total / limitNumber
-      ),
-    },
-  });
-});
-
-// @desc    Get single payment
-// @route   GET /api/v1/admin/payments/:paymentId
-// @access  Private (Admin/Super Admin)
-const getPayment = asyncHandler(async (req, res) => {
-  const { paymentId } = req.params;
-
-  const payment =
-    await prisma.hostSubscriptionPayment.findUnique({
-      where: {
-        id: paymentId,
-      },
+  const [payments, total] = await Promise.all([
+    prisma.hostSubscriptionPayment.findMany({
+      where,
 
       include: {
         host: {
@@ -1725,23 +1533,74 @@ const getPayment = asyncHandler(async (req, res) => {
             phone_number: true,
             role: true,
             status: true,
-            host_expiry_date: true,
-            host_details: true,
+          },
+        },
+      },
 
-            id_documents: {
-              select: {
-                id: true,
-                document_type: true,
-                side: true,
-                file_url: true,
-                status: true,
-                rejection_reason: true,
-              },
+      orderBy: {
+        created_at: "desc",
+      },
+
+      skip,
+      take: limitNumber,
+    }),
+
+    prisma.hostSubscriptionPayment.count({
+      where,
+    }),
+  ]);
+
+  res.status(200).json({
+    success: true,
+
+    data: payments,
+
+    pagination: {
+      page: pageNumber,
+      limit: limitNumber,
+      total,
+      pages: Math.ceil(total / limitNumber),
+    },
+  });
+});
+
+// @desc    Get single payment
+// @route   GET /api/v1/admin/payments/:paymentId
+// @access  Private (Admin/Super Admin)
+const getPayment = asyncHandler(async (req, res) => {
+  const { paymentId } = req.params;
+
+  const payment = await prisma.hostSubscriptionPayment.findUnique({
+    where: {
+      id: paymentId,
+    },
+
+    include: {
+      host: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone_number: true,
+          role: true,
+          status: true,
+          host_expiry_date: true,
+          host_details: true,
+
+          id_documents: {
+            select: {
+              id: true,
+              document_type: true,
+              side: true,
+              file_url: true,
+              status: true,
+              rejection_reason: true,
             },
           },
         },
       },
-    });
+    },
+  });
 
   if (!payment) {
     return res.status(404).json({
@@ -1763,16 +1622,15 @@ const approvePayment = asyncHandler(async (req, res) => {
   const { paymentId } = req.params;
   const { notes } = req.body;
 
-  const payment =
-    await prisma.hostSubscriptionPayment.findUnique({
-      where: {
-        id: paymentId,
-      },
+  const payment = await prisma.hostSubscriptionPayment.findUnique({
+    where: {
+      id: paymentId,
+    },
 
-      include: {
-        host: true,
-      },
-    });
+    include: {
+      host: true,
+    },
+  });
 
   if (!payment) {
     return res.status(404).json({
@@ -1792,37 +1650,33 @@ const approvePayment = asyncHandler(async (req, res) => {
 
   const expiryDate = new Date(now);
 
-  expiryDate.setMonth(
-    expiryDate.getMonth() + 6
-  );
+  expiryDate.setMonth(expiryDate.getMonth() + 6);
 
-  const updatedPayment =
-    await prisma.hostSubscriptionPayment.update({
-      where: {
-        id: paymentId,
-      },
+  const updatedPayment = await prisma.hostSubscriptionPayment.update({
+    where: {
+      id: paymentId,
+    },
 
-      data: {
-        status: "approved",
-        paid_at: now,
-        period_start: now,
-        period_end: expiryDate,
-        notes: notes || payment.notes,
-      },
+    data: {
+      status: "approved",
+      paid_at: now,
+      period_start: now,
+      period_end: expiryDate,
+      notes: notes || payment.notes,
+    },
 
-      include: {
-        host: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
+    include: {
+      host: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
         },
       },
-    });
+    },
+  });
 
-  const hostDetails =
-    payment.host.host_details || {};
+  const hostDetails = payment.host.host_details || {};
 
   await prisma.user.update({
     where: {
@@ -1847,18 +1701,13 @@ const approvePayment = asyncHandler(async (req, res) => {
     await emailService.sendHostPaymentApprovedEmail(
       payment.host,
       updatedPayment,
-      expiryDate
+      expiryDate,
     );
   } catch (error) {
-    console.error(
-      "Payment approval email failed:",
-      error
-    );
+    console.error("Payment approval email failed:", error);
   }
 
-  await redisHelpers.del(
-    `user:${payment.host_id}`
-  );
+  await redisHelpers.del(`user:${payment.host_id}`);
 
   await redisHelpers.del("admin:stats");
 
@@ -1883,16 +1732,15 @@ const rejectPayment = asyncHandler(async (req, res) => {
     });
   }
 
-  const payment =
-    await prisma.hostSubscriptionPayment.findUnique({
-      where: {
-        id: paymentId,
-      },
+  const payment = await prisma.hostSubscriptionPayment.findUnique({
+    where: {
+      id: paymentId,
+    },
 
-      include: {
-        host: true,
-      },
-    });
+    include: {
+      host: true,
+    },
+  });
 
   if (!payment) {
     return res.status(404).json({
@@ -1910,30 +1758,28 @@ const rejectPayment = asyncHandler(async (req, res) => {
 
   const rejectionReason = reason.trim();
 
-  const updatedPayment =
-    await prisma.hostSubscriptionPayment.update({
-      where: {
-        id: paymentId,
-      },
+  const updatedPayment = await prisma.hostSubscriptionPayment.update({
+    where: {
+      id: paymentId,
+    },
 
-      data: {
-        status: "rejected",
-        notes: rejectionReason,
-      },
+    data: {
+      status: "rejected",
+      notes: rejectionReason,
+    },
 
-      include: {
-        host: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
+    include: {
+      host: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
         },
       },
-    });
+    },
+  });
 
-  const hostDetails =
-    payment.host.host_details || {};
+  const hostDetails = payment.host.host_details || {};
 
   await prisma.user.update({
     where: {
@@ -1947,8 +1793,7 @@ const rejectPayment = asyncHandler(async (req, res) => {
         payment_verified: false,
         payment_verified_at: null,
         payment_rejected: true,
-        payment_rejection_reason:
-          rejectionReason,
+        payment_rejection_reason: rejectionReason,
       },
     },
   });
@@ -1957,18 +1802,13 @@ const rejectPayment = asyncHandler(async (req, res) => {
     await emailService.sendHostPaymentRejectedEmail(
       payment.host,
       updatedPayment,
-      rejectionReason
+      rejectionReason,
     );
   } catch (error) {
-    console.error(
-      "Payment rejection email failed:",
-      error
-    );
+    console.error("Payment rejection email failed:", error);
   }
 
-  await redisHelpers.del(
-    `user:${payment.host_id}`
-  );
+  await redisHelpers.del(`user:${payment.host_id}`);
 
   await redisHelpers.del("admin:stats");
 
@@ -1983,12 +1823,7 @@ const rejectPayment = asyncHandler(async (req, res) => {
 // @route   GET /api/v1/admin/payments/stats
 // @access  Private (Admin/Super Admin)
 const getPaymentStats = asyncHandler(async (req, res) => {
-  const [
-    total,
-    pending,
-    approved,
-    rejected,
-  ] = await Promise.all([
+  const [total, pending, approved, rejected] = await Promise.all([
     prisma.hostSubscriptionPayment.count(),
 
     prisma.hostSubscriptionPayment.count({
@@ -2010,16 +1845,15 @@ const getPaymentStats = asyncHandler(async (req, res) => {
     }),
   ]);
 
-  const approvedPayments =
-    await prisma.hostSubscriptionPayment.aggregate({
-      where: {
-        status: "approved",
-      },
+  const approvedPayments = await prisma.hostSubscriptionPayment.aggregate({
+    where: {
+      status: "approved",
+    },
 
-      _sum: {
-        amount: true,
-      },
-    });
+    _sum: {
+      amount: true,
+    },
+  });
 
   res.status(200).json({
     success: true,
@@ -2030,8 +1864,7 @@ const getPaymentStats = asyncHandler(async (req, res) => {
       approved,
       rejected,
 
-      totalApprovedAmount:
-        approvedPayments._sum.amount || 0,
+      totalApprovedAmount: approvedPayments._sum.amount || 0,
     },
   });
 });
@@ -2062,22 +1895,16 @@ const approveUserId = asyncHandler(async (req, res) => {
     });
   }
 
-  if (
-    !user.id_documents ||
-    user.id_documents.length === 0
-  ) {
+  if (!user.id_documents || user.id_documents.length === 0) {
     return res.status(400).json({
       success: false,
-      message:
-        "User has not uploaded any ID documents",
+      message: "User has not uploaded any ID documents",
     });
   }
 
-  const pendingDocuments =
-    user.id_documents.filter(
-      (document) =>
-        document.status !== "approved"
-    );
+  const pendingDocuments = user.id_documents.filter(
+    (document) => document.status !== "approved",
+  );
 
   if (pendingDocuments.length === 0) {
     return res.status(400).json({
@@ -2088,53 +1915,50 @@ const approveUserId = asyncHandler(async (req, res) => {
 
   const now = new Date();
 
-  const result = await prisma.$transaction(
-    async (tx) => {
-      // Approve all documents belonging to this user.
-      await tx.userIdDocument.updateMany({
-        where: {
-          user_id: id,
-        },
+  const result = await prisma.$transaction(async (tx) => {
+    // Approve all documents belonging to this user.
+    await tx.userIdDocument.updateMany({
+      where: {
+        user_id: id,
+      },
 
-        data: {
-          status: "approved",
-          rejection_reason: null,
-          admin_notes: notes || null,
-          reviewed_at: now,
-          reviewed_by: req.user.id,
-        },
-      });
+      data: {
+        status: "approved",
+        rejection_reason: null,
+        admin_notes: notes || null,
+        reviewed_at: now,
+        reviewed_by: req.user.id,
+      },
+    });
 
-      const hostDetails =
-        user.host_details || {};
+    const hostDetails = user.host_details || {};
 
-      const updatedHostDetails = {
-        ...hostDetails,
+    const updatedHostDetails = {
+      ...hostDetails,
 
-        id_verified: true,
-        id_verified_at: now,
+      id_verified: true,
+      id_verified_at: now,
 
-        id_rejected: false,
-        id_rejection_reason: null,
-      };
+      id_rejected: false,
+      id_rejection_reason: null,
+    };
 
-      return tx.user.update({
-        where: { id },
+    return tx.user.update({
+      where: { id },
 
-        data: {
-          host_details: updatedHostDetails,
-        },
+      data: {
+        host_details: updatedHostDetails,
+      },
 
-        include: {
-          id_documents: {
-            orderBy: {
-              created_at: "desc",
-            },
+      include: {
+        id_documents: {
+          orderBy: {
+            created_at: "desc",
           },
         },
-      });
-    }
-  );
+      },
+    });
+  });
 
   await redisHelpers.del(`user:${id}`);
   await redisHelpers.del("admin:stats");
@@ -2177,22 +2001,16 @@ const rejectUserId = asyncHandler(async (req, res) => {
     });
   }
 
-  if (
-    !user.id_documents ||
-    user.id_documents.length === 0
-  ) {
+  if (!user.id_documents || user.id_documents.length === 0) {
     return res.status(400).json({
       success: false,
-      message:
-        "User has not uploaded any ID documents",
+      message: "User has not uploaded any ID documents",
     });
   }
 
-  const documentsToReject =
-    user.id_documents.filter(
-      (document) =>
-        document.status !== "rejected"
-    );
+  const documentsToReject = user.id_documents.filter(
+    (document) => document.status !== "rejected",
+  );
 
   if (documentsToReject.length === 0) {
     return res.status(400).json({
@@ -2203,54 +2021,49 @@ const rejectUserId = asyncHandler(async (req, res) => {
 
   const now = new Date();
 
-  const result = await prisma.$transaction(
-    async (tx) => {
-      await tx.userIdDocument.updateMany({
-        where: {
-          user_id: id,
-        },
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.userIdDocument.updateMany({
+      where: {
+        user_id: id,
+      },
 
-        data: {
-          status: "rejected",
-          rejection_reason:
-            rejectionReason,
-          admin_notes: null,
-          reviewed_at: now,
-          reviewed_by: req.user.id,
-        },
-      });
+      data: {
+        status: "rejected",
+        rejection_reason: rejectionReason,
+        admin_notes: null,
+        reviewed_at: now,
+        reviewed_by: req.user.id,
+      },
+    });
 
-      const hostDetails =
-        user.host_details || {};
+    const hostDetails = user.host_details || {};
 
-      const updatedHostDetails = {
-        ...hostDetails,
+    const updatedHostDetails = {
+      ...hostDetails,
 
-        id_verified: false,
-        id_verified_at: null,
+      id_verified: false,
+      id_verified_at: null,
 
-        id_rejected: true,
-        id_rejection_reason:
-          rejectionReason,
-      };
+      id_rejected: true,
+      id_rejection_reason: rejectionReason,
+    };
 
-      return tx.user.update({
-        where: { id },
+    return tx.user.update({
+      where: { id },
 
-        data: {
-          host_details: updatedHostDetails,
-        },
+      data: {
+        host_details: updatedHostDetails,
+      },
 
-        include: {
-          id_documents: {
-            orderBy: {
-              created_at: "desc",
-            },
+      include: {
+        id_documents: {
+          orderBy: {
+            created_at: "desc",
           },
         },
-      });
-    }
-  );
+      },
+    });
+  });
 
   await redisHelpers.del(`user:${id}`);
   await redisHelpers.del("admin:stats");
@@ -2284,66 +2097,58 @@ const setUserIdPending = asyncHandler(async (req, res) => {
     });
   }
 
-  if (
-    !user.id_documents ||
-    user.id_documents.length === 0
-  ) {
+  if (!user.id_documents || user.id_documents.length === 0) {
     return res.status(400).json({
       success: false,
-      message:
-        "User has not uploaded any ID documents",
+      message: "User has not uploaded any ID documents",
     });
   }
 
   const now = new Date();
 
-  const result = await prisma.$transaction(
-    async (tx) => {
-      await tx.userIdDocument.updateMany({
-        where: {
-          user_id: id,
-        },
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.userIdDocument.updateMany({
+      where: {
+        user_id: id,
+      },
 
-        data: {
-          status: "pending",
-          rejection_reason: null,
-          admin_notes:
-            reason?.trim() || null,
-          reviewed_at: null,
-          reviewed_by: null,
-        },
-      });
+      data: {
+        status: "pending",
+        rejection_reason: null,
+        admin_notes: reason?.trim() || null,
+        reviewed_at: null,
+        reviewed_by: null,
+      },
+    });
 
-      const hostDetails =
-        user.host_details || {};
+    const hostDetails = user.host_details || {};
 
-      const updatedHostDetails = {
-        ...hostDetails,
+    const updatedHostDetails = {
+      ...hostDetails,
 
-        id_verified: false,
-        id_verified_at: null,
+      id_verified: false,
+      id_verified_at: null,
 
-        id_rejected: false,
-        id_rejection_reason: null,
-      };
+      id_rejected: false,
+      id_rejection_reason: null,
+    };
 
-      return tx.user.update({
-        where: { id },
+    return tx.user.update({
+      where: { id },
 
-        data: {
-          host_details: updatedHostDetails,
-        },
+      data: {
+        host_details: updatedHostDetails,
+      },
 
-        include: {
-          id_documents: {
-            orderBy: {
-              created_at: "desc",
-            },
+      include: {
+        id_documents: {
+          orderBy: {
+            created_at: "desc",
           },
         },
-      });
-    }
-  );
+      },
+    });
+  });
 
   await redisHelpers.del(`user:${id}`);
   await redisHelpers.del("admin:stats");
@@ -2363,60 +2168,47 @@ const setUserIdPending = asyncHandler(async (req, res) => {
 // @route   POST /api/v1/dashboard/createAdmin
 // @access  Private (Super Admin only)
 const createAdmin = asyncHandler(async (req, res) => {
-  const {
-    name,
-    email,
-    password,
-    phone_number,
-    role = "admin",
-  } = req.body;
+  const { name, email, password, phone_number, role = "admin" } = req.body;
 
   if (req.user.role !== "super_admin") {
     return res.status(403).json({
       success: false,
-      message:
-        "Only super admins can create new admin accounts",
+      message: "Only super admins can create new admin accounts",
     });
   }
 
   if (!name || !email || !password || !phone_number) {
     return res.status(400).json({
       success: false,
-      message:
-        "Name, email, password and phone number are required",
+      message: "Name, email, password and phone number are required",
     });
   }
 
   if (!["admin", "super_admin"].includes(role)) {
     return res.status(400).json({
       success: false,
-      message:
-        "Role must be admin or super_admin",
+      message: "Role must be admin or super_admin",
     });
   }
 
-  const normalizedEmail =
-    email.toLowerCase().trim();
+  const normalizedEmail = email.toLowerCase().trim();
 
-  const existingUser =
-    await prisma.user.findUnique({
-      where: {
-        email: normalizedEmail,
-      },
-    });
+  const existingUser = await prisma.user.findUnique({
+    where: {
+      email: normalizedEmail,
+    },
+  });
 
   if (existingUser) {
     return res.status(400).json({
       success: false,
-      message:
-        "User already exists with this email",
+      message: "User already exists with this email",
     });
   }
 
   const salt = await bcrypt.genSalt(10);
 
-  const hashedPassword =
-    await bcrypt.hash(password, salt);
+  const hashedPassword = await bcrypt.hash(password, salt);
 
   const user = await prisma.user.create({
     data: {
@@ -2439,30 +2231,23 @@ const createAdmin = asyncHandler(async (req, res) => {
   });
 
   try {
-    const emailResult =
-      await emailService.sendAdminWelcomeEmail(
-        normalizedEmail,
-        name,
-        role
-      );
+    const emailResult = await emailService.sendAdminWelcomeEmail(
+      normalizedEmail,
+      name,
+      role,
+    );
 
     if (!emailResult.success) {
       console.error(
         "Admin created, but welcome email failed:",
-        emailResult.error
+        emailResult.error,
       );
     }
   } catch (error) {
-    console.error(
-      "Admin welcome email exception:",
-      error
-    );
+    console.error("Admin welcome email exception:", error);
   }
 
-  const {
-    password_hash,
-    ...userWithoutPassword
-  } = user;
+  const { password_hash, ...userWithoutPassword } = user;
 
   res.status(201).json({
     success: true,
