@@ -492,11 +492,33 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
         success: true,
         data: {
           id: {
-            uploaded: false,
-            verified: false,
-            verified_at: null,
-            rejected: false,
-            rejection_reason: null,
+            uploaded: idDocuments.length > 0,
+
+            documents: idDocuments,
+
+            // Latest document status
+            status: idDocuments[0]?.status || "pending",
+
+            verified:
+              idDocuments.length > 0 &&
+              idDocuments.every((doc) => doc.status === "approved"),
+
+            verified_at:
+              idDocuments.length > 0 &&
+              idDocuments.every((doc) => doc.status === "approved")
+                ? idDocuments
+                    .filter((doc) => doc.reviewed_at)
+                    .sort(
+                      (a, b) =>
+                        new Date(b.reviewed_at) - new Date(a.reviewed_at),
+                    )[0]?.reviewed_at || null
+                : null,
+
+            rejected: idDocuments.some((doc) => doc.status === "rejected"),
+
+            rejection_reason:
+              idDocuments.find((doc) => doc.status === "rejected")
+                ?.rejection_reason || null,
           },
           payment: {
             uploaded: false,
