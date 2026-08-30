@@ -488,6 +488,8 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
 
     // If user is not a host, return a basic response
     if (user.role !== "host") {
+      const idDocuments = user.user_id_documents || [];
+
       return res.status(200).json({
         success: true,
         data: {
