@@ -204,6 +204,8 @@ const createBooking = asyncHandler(async (req, res) => {
 // @desc    Get all bookings for current user
 // @route   GET /api/v1/bookings/my-booking
 // @access  Private
+// src/controllers/bookingController.js
+
 const getMyBookings = asyncHandler(async (req, res) => {
   const { page, limit } = paginate(req.query.page, req.query.limit);
   const { status, upcoming } = req.query;
@@ -220,7 +222,7 @@ const getMyBookings = asyncHandler(async (req, res) => {
     user_id: req.user.id,
   };
 
-  // Validate and add status filter
+  // Add status filter if provided
   if (status) {
     const validStatuses = ['pending', 'confirmed', 'checked_in', 'checked_out', 'cancelled', 'no_show'];
     if (!validStatuses.includes(status)) {
@@ -272,14 +274,13 @@ const getMyBookings = asyncHandler(async (req, res) => {
               },
             },
           },
-          payments: {
+          // REMOVED: payments (doesn't exist in schema)
+          user: {
             select: {
               id: true,
-              amount: true,
-              status: true,
-              type: true,
-              paid_at: true,
-              sadad_reference: true,
+              name: true,
+              email: true,
+              phone_number: true,
             },
           },
         },
@@ -299,7 +300,7 @@ const getMyBookings = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching bookings:', error);
-    // Return empty bookings array instead of throwing error
+    // Return empty bookings array on error
     return res.status(200).json({
       success: true,
       data: [],
@@ -357,16 +358,7 @@ const getHostBookings = asyncHandler(async (req, res) => {
             phone_number: true,
           },
         },
-        payments: {
-          select: {
-            id: true,
-            amount: true,
-            status: true,
-            type: true,
-            paid_at: true,
-            sadad_reference: true,
-          },
-        },
+        // REMOVED: payments (doesn't exist in schema)
       },
     }),
     prisma.booking.count({ where }),
