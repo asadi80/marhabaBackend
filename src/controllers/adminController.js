@@ -1974,7 +1974,7 @@ const approveUserId = asyncHandler(async (req, res) => {
 // @route   PUT /api/v1/admin/users/:id/id/reject
 // @access  Private (Admin/Super Admin)
 const rejectUserId = asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const { documentId } = req.params;
   const { reason } = req.body;
 
   // Validate rejection reason
@@ -1990,9 +1990,8 @@ const rejectUserId = asyncHandler(async (req, res) => {
   // Find user and ID documents
   const user = await prisma.user.findUnique({
     where: {
-      id,
+      id: documentId,
     },
-
     include: {
       id_documents: true,
     },
@@ -2032,9 +2031,8 @@ const rejectUserId = asyncHandler(async (req, res) => {
     // Reject all ID documents belonging to this user
     await tx.userIdDocument.updateMany({
       where: {
-        user_id: id,
+        user_id: documentId,
       },
-
       data: {
         status: "rejected",
         rejection_reason: rejectionReason,
@@ -2049,10 +2047,8 @@ const rejectUserId = asyncHandler(async (req, res) => {
 
     const updatedHostDetails = {
       ...hostDetails,
-
       id_verified: false,
       id_verified_at: null,
-
       id_rejected: true,
       id_rejection_reason: rejectionReason,
     };
@@ -2060,13 +2056,11 @@ const rejectUserId = asyncHandler(async (req, res) => {
     // Update user
     return tx.user.update({
       where: {
-        id,
+        id: documentId,
       },
-
       data: {
         host_details: updatedHostDetails,
       },
-
       include: {
         id_documents: {
           orderBy: {
@@ -2088,7 +2082,7 @@ const rejectUserId = asyncHandler(async (req, res) => {
   }
 
   // Clear Redis cache
-  await redisHelpers.del(`user:${id}`);
+  await redisHelpers.del(`user:${documentId}`);
   await redisHelpers.del("admin:stats");
 
   // Response
