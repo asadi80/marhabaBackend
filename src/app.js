@@ -102,7 +102,7 @@ if (process.env.NODE_ENV === "development") {
 
 // Rate limiting
 app.use(generalLimiter);
-app.use("/api", apiLimiter);
+// app.use("/api", apiLimiter);
 
 // Health check (important for Render)
 app.get("/health", (req, res) => {
