@@ -1253,7 +1253,7 @@ Please review the host application and update the account status through the adm
   /**
    * Send host ID approval email
    */
-  async sendHostIdApprovedEmail(host) {
+  async sendHostIdDocumentApprovedEmail(host) {
     const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
 
     const emailHtml = `

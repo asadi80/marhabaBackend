@@ -1960,6 +1960,36 @@ const approveUserId = asyncHandler(async (req, res) => {
     return updatedDocument;
   });
 
+  // ✅ Send email notification to user
+  try {
+    // Check if all documents are now approved
+    const allDocuments = await prisma.userIdDocument.findMany({
+      where: { user_id: user.id },
+    });
+    
+    const allApproved = allDocuments.every(doc => doc.status === "approved");
+    
+    if (allApproved) {
+      // Send approval email only when ALL documents are approved
+      await emailService.sendHostIdApprovedEmail(
+        user,
+        notes || "Your ID documents have been verified and approved."
+      );
+      console.log(`✅ ID approval email sent to ${user.email}`);
+    } else {
+      // Send individual document approval notification
+      await emailService.sendHostIdDocumentApprovedEmail(
+        user,
+        document.document_type || "ID Document",
+        document.side || "",
+        notes || "Your document has been approved."
+      );
+      console.log(`✅ Document approval email sent to ${user.email}`);
+    }
+  } catch (error) {
+    console.error("❌ ID approval email failed:", error);
+  }
+
   // Clear Redis cache
   await redisHelpers.del(`user:${user.id}`);
   await redisHelpers.del("admin:stats");
