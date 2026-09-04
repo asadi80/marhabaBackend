@@ -1249,6 +1249,445 @@ Please review the host application and update the account status through the adm
 
     return { success: true };
   }
+
+  /**
+   * Send host ID approval email
+   */
+  async sendHostIdApprovedEmail(host) {
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
+
+    const emailHtml = `
+<div style="
+  font-family: Arial, 'Cairo', 'Tajawal', sans-serif;
+  max-width: 600px;
+  margin: auto;
+  padding: 20px;
+  background: #f7f6f2;
+">
+
+  <div style="text-align: center; margin-bottom: 20px;">
+    <h1 style="color: #1a1a2e;">
+      مر<span style="color: #e8c547;">حبا</span>
+    </h1>
+  </div>
+
+  <!-- English Section -->
+  <div style="margin-bottom: 30px;">
+
+    <h2 style="color: #27500A;">
+      ✅ ID Verification Approved
+    </h2>
+
+    <p>Dear ${host.name},</p>
+
+    <p>
+      Great news! Your identity document has been
+      <strong>approved and verified</strong> by the Marhaba administration team.
+    </p>
+
+    <div style="
+      background: #EAF3DE;
+      padding: 20px;
+      border-radius: 12px;
+      margin: 20px 0;
+      border: 1px solid #27500A;
+    ">
+
+      <h3 style="color: #27500A; margin-top: 0;">
+        📋 ID Verification Status
+      </h3>
+
+      <p>
+        <strong>Status:</strong>
+        <span style="color: #27500A;">Approved</span>
+      </p>
+
+      <p>
+        Your identity has been successfully verified.
+      </p>
+
+    </div>
+
+    <p>
+      You can now continue with the next step of your host registration.
+    </p>
+
+    <p>
+      Please upload your payment receipt from your host dashboard to continue.
+    </p>
+
+    <div style="text-align: center; margin: 25px 0;">
+      <a
+        href="${appUrl}/host-dashboard"
+        style="
+          background-color: #4F46E5;
+          color: white;
+          padding: 12px 24px;
+          text-decoration: none;
+          border-radius: 6px;
+          display: inline-block;
+        "
+      >
+        Go to Host Dashboard →
+      </a>
+    </div>
+
+    <p>
+      Thank you for choosing Marhaba.
+    </p>
+
+    <p>
+      Best regards,<br>
+      Marhaba Team
+    </p>
+
+  </div>
+
+  <div style="border-top: 2px solid #e5e7eb; margin: 25px 0;"></div>
+
+  <!-- Arabic Section -->
+  <div style="direction: rtl; text-align: right;">
+
+    <h2 style="color: #27500A;">
+      ✅ تمت الموافقة على التحقق من الهوية
+    </h2>
+
+    <p>عزيزي ${host.name}،</p>
+
+    <p>
+      أخبار رائعة! تمت
+      <strong>الموافقة والتحقق من وثيقة هويتك</strong>
+      من قبل فريق إدارة مرحبا.
+    </p>
+
+    <div style="
+      background: #EAF3DE;
+      padding: 20px;
+      border-radius: 12px;
+      margin: 20px 0;
+      border: 1px solid #27500A;
+    ">
+
+      <h3 style="color: #27500A; margin-top: 0;">
+        📋 حالة التحقق من الهوية
+      </h3>
+
+      <p>
+        <strong>الحالة:</strong>
+        <span style="color: #27500A;">تمت الموافقة</span>
+      </p>
+
+      <p>
+        تم التحقق من هويتك بنجاح.
+      </p>
+
+    </div>
+
+    <p>
+      يمكنك الآن الانتقال إلى الخطوة التالية من تسجيل المضيف.
+    </p>
+
+    <p>
+      يرجى تحميل إيصال الدفع من لوحة تحكم المضيف لإكمال التسجيل.
+    </p>
+
+    <div style="text-align: center; margin: 25px 0;">
+      <a
+        href="${appUrl}/host-dashboard"
+        style="
+          background-color: #4F46E5;
+          color: white;
+          padding: 12px 24px;
+          text-decoration: none;
+          border-radius: 6px;
+          display: inline-block;
+        "
+      >
+        الذهاب إلى لوحة تحكم المضيف ←
+      </a>
+    </div>
+
+    <p>
+      شكراً لاختيارك مرحبا.
+    </p>
+
+    <p>
+      مع أطيب التحيات،<br>
+      فريق مرحبا
+    </p>
+
+  </div>
+
+</div>
+`;
+
+    return this.sendEmail({
+      to: host.email,
+      subject:
+        "ID Verification Approved / تمت الموافقة على التحقق من الهوية - Marhaba",
+      text: `
+Dear ${host.name},
+
+Great news! Your identity document has been approved and verified by the Marhaba administration team.
+
+Your ID verification status is now Approved.
+
+You can continue with the next step of your host registration by uploading your payment receipt.
+
+Host Dashboard:
+${appUrl}/host-dashboard
+
+Best regards,
+Marhaba Team
+
+---
+
+عزيزي ${host.name}،
+
+أخبار رائعة! تمت الموافقة والتحقق من وثيقة هويتك من قبل فريق إدارة مرحبا.
+
+حالة التحقق من هويتك الآن: تمت الموافقة.
+
+يمكنك الانتقال إلى الخطوة التالية من تسجيل المضيف وتحميل إيصال الدفع.
+
+لوحة تحكم المضيف:
+${appUrl}/host-dashboard
+
+مع أطيب التحيات،
+فريق مرحبا
+`,
+      html: emailHtml,
+    });
+  }
+
+  /**
+   * Send host ID rejection email
+   */
+  async sendHostIdRejectedEmail(host, reason) {
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
+
+    const rejectionReason = reason || "The ID document was unclear or invalid";
+
+    const rejectionReasonArabic =
+      reason || "وثيقة الهوية غير واضحة أو غير صالحة";
+
+    const emailHtml = `
+<div style="
+  font-family: Arial, 'Cairo', 'Tajawal', sans-serif;
+  max-width: 600px;
+  margin: auto;
+  padding: 20px;
+  background: #f7f6f2;
+">
+
+  <div style="text-align: center; margin-bottom: 20px;">
+    <h1 style="color: #1a1a2e;">
+      مر<span style="color: #e8c547;">حبا</span>
+    </h1>
+  </div>
+
+  <!-- English Section -->
+  <div style="margin-bottom: 30px;">
+
+    <h2 style="color: #E24B4A;">
+      ❌ ID Verification Rejected
+    </h2>
+
+    <p>Dear ${host.name},</p>
+
+    <p>
+      We regret to inform you that your identity document
+      has been <strong>rejected</strong> by the Marhaba administration team.
+    </p>
+
+    <div style="
+      background: #FCEBEB;
+      padding: 20px;
+      border-radius: 12px;
+      margin: 20px 0;
+      border: 1px solid #E24B4A;
+    ">
+
+      <h3 style="
+        color: #E24B4A;
+        margin-top: 0;
+      ">
+        📋 Rejection Reason
+      </h3>
+
+      <p>
+        ${rejectionReason}
+      </p>
+
+    </div>
+
+    <p>
+      Please upload a new, clear and valid copy of your official
+      identification document.
+    </p>
+
+    <p>
+      Make sure that:
+    </p>
+
+    <ul>
+      <li>The document is clear and readable.</li>
+      <li>All required information is visible.</li>
+      <li>The document has not expired.</li>
+      <li>The uploaded document belongs to you.</li>
+    </ul>
+
+    <div style="text-align: center; margin: 25px 0;">
+      <a
+        href="${appUrl}/host-dashboard"
+        style="
+          background-color: #4F46E5;
+          color: white;
+          padding: 12px 24px;
+          text-decoration: none;
+          border-radius: 6px;
+          display: inline-block;
+        "
+      >
+        Upload New ID →
+      </a>
+    </div>
+
+    <p>
+      If you believe this decision was made in error,
+      please contact our support team.
+    </p>
+
+    <p>
+      Best regards,<br>
+      Marhaba Team
+    </p>
+
+  </div>
+
+  <div style="border-top: 2px solid #e5e7eb; margin: 25px 0;"></div>
+
+  <!-- Arabic Section -->
+  <div style="direction: rtl; text-align: right;">
+
+    <h2 style="color: #E24B4A;">
+      ❌ تم رفض التحقق من الهوية
+    </h2>
+
+    <p>عزيزي ${host.name}،</p>
+
+    <p>
+      نأسف لإبلاغك بأن وثيقة هويتك قد تم
+      <strong>رفضها</strong>
+      من قبل فريق إدارة مرحبا.
+    </p>
+
+    <div style="
+      background: #FCEBEB;
+      padding: 20px;
+      border-radius: 12px;
+      margin: 20px 0;
+      border: 1px solid #E24B4A;
+    ">
+
+      <h3 style="
+        color: #E24B4A;
+        margin-top: 0;
+      ">
+        📋 سبب الرفض
+      </h3>
+
+      <p>
+        ${rejectionReasonArabic}
+      </p>
+
+    </div>
+
+    <p>
+      يرجى تحميل نسخة جديدة وواضحة وصالحة من وثيقة هويتك الرسمية.
+    </p>
+
+    <p>
+      يرجى التأكد من أن:
+    </p>
+
+    <ul>
+      <li>الوثيقة واضحة ويمكن قراءتها.</li>
+      <li>جميع المعلومات المطلوبة ظاهرة.</li>
+      <li>الوثيقة غير منتهية الصلاحية.</li>
+      <li>الوثيقة المرفوعة تخصك.</li>
+    </ul>
+
+    <div style="text-align: center; margin: 25px 0;">
+      <a
+        href="${appUrl}/host-dashboard"
+        style="
+          background-color: #4F46E5;
+          color: white;
+          padding: 12px 24px;
+          text-decoration: none;
+          border-radius: 6px;
+          display: inline-block;
+        "
+      >
+        تحميل هوية جديدة ←
+      </a>
+    </div>
+
+    <p>
+      إذا كنت تعتقد أن هذا القرار تم عن طريق الخطأ،
+      يرجى التواصل مع فريق الدعم.
+    </p>
+
+    <p>
+      مع أطيب التحيات،<br>
+      فريق مرحبا
+    </p>
+
+  </div>
+
+</div>
+`;
+
+    return this.sendEmail({
+      to: host.email,
+      subject: "ID Verification Rejected / تم رفض التحقق من الهوية - Marhaba",
+      text: `
+Dear ${host.name},
+
+We regret to inform you that your identity document has been rejected.
+
+Reason:
+${rejectionReason}
+
+Please upload a new, clear and valid copy of your official ID document.
+
+Host Dashboard:
+${appUrl}/host-dashboard
+
+Best regards,
+Marhaba Team
+
+---
+
+عزيزي ${host.name}،
+
+نأسف لإبلاغك بأن وثيقة هويتك قد تم رفضها.
+
+السبب:
+${rejectionReasonArabic}
+
+يرجى تحميل نسخة جديدة وواضحة وصالحة من وثيقة هويتك الرسمية.
+
+لوحة تحكم المضيف:
+${appUrl}/host-dashboard
+
+مع أطيب التحيات،
+فريق مرحبا
+`,
+      html: emailHtml,
+    });
+  }
 }
 
 module.exports = new EmailService();

@@ -1977,17 +1977,21 @@ const rejectUserId = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { reason } = req.body;
 
+  // Validate rejection reason
   if (!reason || !reason.trim()) {
     return res.status(400).json({
       success: false,
-      message: "ID rejection reason is required",
+      message: "Rejection reason is required",
     });
   }
 
   const rejectionReason = reason.trim();
 
+  // Find user and ID documents
   const user = await prisma.user.findUnique({
-    where: { id },
+    where: {
+      id,
+    },
 
     include: {
       id_documents: true,
@@ -2001,6 +2005,7 @@ const rejectUserId = asyncHandler(async (req, res) => {
     });
   }
 
+  // Check if user has uploaded ID documents
   if (!user.id_documents || user.id_documents.length === 0) {
     return res.status(400).json({
       success: false,
@@ -2008,8 +2013,9 @@ const rejectUserId = asyncHandler(async (req, res) => {
     });
   }
 
+  // Check if all documents are already rejected
   const documentsToReject = user.id_documents.filter(
-    (document) => document.status !== "rejected",
+    (document) => document.status !== "rejected"
   );
 
   if (documentsToReject.length === 0) {
@@ -2021,7 +2027,9 @@ const rejectUserId = asyncHandler(async (req, res) => {
 
   const now = new Date();
 
+  // Update ID documents + user inside one transaction
   const result = await prisma.$transaction(async (tx) => {
+    // Reject all ID documents belonging to this user
     await tx.userIdDocument.updateMany({
       where: {
         user_id: id,
@@ -2036,6 +2044,7 @@ const rejectUserId = asyncHandler(async (req, res) => {
       },
     });
 
+    // Update host details
     const hostDetails = user.host_details || {};
 
     const updatedHostDetails = {
@@ -2048,8 +2057,11 @@ const rejectUserId = asyncHandler(async (req, res) => {
       id_rejection_reason: rejectionReason,
     };
 
+    // Update user
     return tx.user.update({
-      where: { id },
+      where: {
+        id,
+      },
 
       data: {
         host_details: updatedHostDetails,
@@ -2065,13 +2077,25 @@ const rejectUserId = asyncHandler(async (req, res) => {
     });
   });
 
+  // Send ID rejection email
+  try {
+    await emailService.sendHostIdRejectedEmail(
+      user,
+      rejectionReason
+    );
+  } catch (error) {
+    console.error("ID rejection email failed:", error);
+  }
+
+  // Clear Redis cache
   await redisHelpers.del(`user:${id}`);
   await redisHelpers.del("admin:stats");
 
+  // Response
   res.status(200).json({
     success: true,
     message: "ID rejected successfully",
-    user: result,
+    data: result,
   });
 });
 
