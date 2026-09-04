@@ -1876,17 +1876,27 @@ const getPaymentStats = asyncHandler(async (req, res) => {
 // @desc    Approve user's ID documents
 // @route   PUT /api/v1/admin/users/:id/id/approve
 // @access  Private (Admin/Super Admin)
+
 const approveUserId = asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const { documentId } = req.params;
   const { notes } = req.body;
 
-  const user = await prisma.user.findUnique({
-    where: { id },
-
+  // ✅ FIX: Find the document first, then get the user
+  const document = await prisma.userIdDocument.findUnique({
+    where: { id: documentId },
     include: {
-      id_documents: true,
+      user: true,
     },
   });
+
+  if (!document) {
+    return res.status(404).json({
+      success: false,
+      message: "Document not found",
+    });
+  }
+
+  const user = document.user;
 
   if (!user) {
     return res.status(404).json({
@@ -1895,33 +1905,21 @@ const approveUserId = asyncHandler(async (req, res) => {
     });
   }
 
-  if (!user.id_documents || user.id_documents.length === 0) {
+  // Check if document is already approved
+  if (document.status === "approved") {
     return res.status(400).json({
       success: false,
-      message: "User has not uploaded any ID documents",
-    });
-  }
-
-  const pendingDocuments = user.id_documents.filter(
-    (document) => document.status !== "approved",
-  );
-
-  if (pendingDocuments.length === 0) {
-    return res.status(400).json({
-      success: false,
-      message: "ID is already approved",
+      message: "Document is already approved",
     });
   }
 
   const now = new Date();
 
+  // Update the specific document inside a transaction
   const result = await prisma.$transaction(async (tx) => {
-    // Approve all documents belonging to this user.
-    await tx.userIdDocument.updateMany({
-      where: {
-        user_id: id,
-      },
-
+    // ✅ Approve only this specific document
+    const updatedDocument = await tx.userIdDocument.update({
+      where: { id: documentId },
       data: {
         status: "approved",
         rejection_reason: null,
@@ -1931,47 +1929,50 @@ const approveUserId = asyncHandler(async (req, res) => {
       },
     });
 
+    // Check if ALL documents for this user are now approved
+    const allDocuments = await tx.userIdDocument.findMany({
+      where: { user_id: user.id },
+    });
+
+    const allApproved = allDocuments.every(doc => doc.status === "approved");
+
+    // Update host details
     const hostDetails = user.host_details || {};
 
-    const updatedHostDetails = {
-      ...hostDetails,
+    if (allApproved) {
+      // All documents approved
+      const updatedHostDetails = {
+        ...hostDetails,
+        id_verified: true,
+        id_verified_at: now,
+        id_rejected: false,
+        id_rejection_reason: null,
+      };
 
-      id_verified: true,
-      id_verified_at: now,
-
-      id_rejected: false,
-      id_rejection_reason: null,
-    };
-
-    return tx.user.update({
-      where: { id },
-
-      data: {
-        host_details: updatedHostDetails,
-      },
-
-      include: {
-        id_documents: {
-          orderBy: {
-            created_at: "desc",
-          },
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          host_details: updatedHostDetails,
         },
-      },
-    });
+      });
+    }
+
+    return updatedDocument;
   });
 
-  await redisHelpers.del(`user:${id}`);
+  // Clear Redis cache
+  await redisHelpers.del(`user:${user.id}`);
   await redisHelpers.del("admin:stats");
 
   res.status(200).json({
     success: true,
-    message: "ID approved successfully",
-    user: result,
+    message: "Document approved successfully",
+    data: result,
   });
 });
 
-// @desc    Reject user's ID documents
-// @route   PUT /api/v1/admin/users/:id/id/reject
+// @desc    Reject a specific ID document
+// @route   PUT /api/v1/dashboard/doc/:documentId/reject
 // @access  Private (Admin/Super Admin)
 const rejectUserId = asyncHandler(async (req, res) => {
   const { documentId } = req.params;
@@ -1987,15 +1988,22 @@ const rejectUserId = asyncHandler(async (req, res) => {
 
   const rejectionReason = reason.trim();
 
-  // Find user and ID documents
-  const user = await prisma.user.findUnique({
-    where: {
-      id: documentId,
-    },
+  // ✅ FIX: Find the document first, then get the user
+  const document = await prisma.userIdDocument.findUnique({
+    where: { id: documentId },
     include: {
-      id_documents: true,
+      user: true,
     },
   });
+
+  if (!document) {
+    return res.status(404).json({
+      success: false,
+      message: "Document not found",
+    });
+  }
+
+  const user = document.user;
 
   if (!user) {
     return res.status(404).json({
@@ -2004,35 +2012,21 @@ const rejectUserId = asyncHandler(async (req, res) => {
     });
   }
 
-  // Check if user has uploaded ID documents
-  if (!user.id_documents || user.id_documents.length === 0) {
+  // Check if document is already rejected
+  if (document.status === "rejected") {
     return res.status(400).json({
       success: false,
-      message: "User has not uploaded any ID documents",
-    });
-  }
-
-  // Check if all documents are already rejected
-  const documentsToReject = user.id_documents.filter(
-    (document) => document.status !== "rejected"
-  );
-
-  if (documentsToReject.length === 0) {
-    return res.status(400).json({
-      success: false,
-      message: "ID is already rejected",
+      message: "Document is already rejected",
     });
   }
 
   const now = new Date();
 
-  // Update ID documents + user inside one transaction
+  // Update the specific document inside a transaction
   const result = await prisma.$transaction(async (tx) => {
-    // Reject all ID documents belonging to this user
-    await tx.userIdDocument.updateMany({
-      where: {
-        user_id: documentId,
-      },
+    // ✅ Reject only this specific document
+    const updatedDocument = await tx.userIdDocument.update({
+      where: { id: documentId },
       data: {
         status: "rejected",
         rejection_reason: rejectionReason,
@@ -2042,33 +2036,60 @@ const rejectUserId = asyncHandler(async (req, res) => {
       },
     });
 
-    // Update host details
+    // Check if ALL documents for this user are now rejected
+    const allDocuments = await tx.userIdDocument.findMany({
+      where: { user_id: user.id },
+    });
+
+    const allRejected = allDocuments.every(doc => doc.status === "rejected");
+
+    // Update host details based on document status
     const hostDetails = user.host_details || {};
 
-    const updatedHostDetails = {
-      ...hostDetails,
-      id_verified: false,
-      id_verified_at: null,
-      id_rejected: true,
-      id_rejection_reason: rejectionReason,
-    };
+    let updatedHostDetails = { ...hostDetails };
+
+    if (allRejected) {
+      // All documents rejected
+      updatedHostDetails = {
+        ...hostDetails,
+        id_verified: false,
+        id_verified_at: null,
+        id_rejected: true,
+        id_rejection_reason: rejectionReason,
+      };
+    } else {
+      // Some documents may still be pending or approved
+      const hasPending = allDocuments.some(doc => doc.status === "pending");
+      const hasApproved = allDocuments.some(doc => doc.status === "approved");
+
+      if (hasApproved) {
+        updatedHostDetails = {
+          ...hostDetails,
+          id_verified: true,
+          id_verified_at: now,
+          id_rejected: false,
+          id_rejection_reason: null,
+        };
+      } else {
+        updatedHostDetails = {
+          ...hostDetails,
+          id_verified: false,
+          id_verified_at: null,
+          id_rejected: false,
+          id_rejection_reason: null,
+        };
+      }
+    }
 
     // Update user
-    return tx.user.update({
-      where: {
-        id: documentId,
-      },
+    await tx.user.update({
+      where: { id: user.id },
       data: {
         host_details: updatedHostDetails,
       },
-      include: {
-        id_documents: {
-          orderBy: {
-            created_at: "desc",
-          },
-        },
-      },
     });
+
+    return updatedDocument;
   });
 
   // Send ID rejection email
@@ -2082,31 +2103,40 @@ const rejectUserId = asyncHandler(async (req, res) => {
   }
 
   // Clear Redis cache
-  await redisHelpers.del(`user:${documentId}`);
+  await redisHelpers.del(`user:${user.id}`);
   await redisHelpers.del("admin:stats");
 
   // Response
   res.status(200).json({
     success: true,
-    message: "ID rejected successfully",
+    message: "Document rejected successfully",
     data: result,
   });
 });
 
-// @desc    Set user's ID documents back to pending
-// @route   PUT /api/v1/admin/users/:id/id/pending
+// @desc    Set a specific ID document back to pending
+// @route   PUT /api/v1/dashboard/doc/:documentId/pending
 // @access  Private (Admin/Super Admin)
 const setUserIdPending = asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const { documentId } = req.params;
   const { reason } = req.body;
 
-  const user = await prisma.user.findUnique({
-    where: { id },
-
+  // ✅ FIX: Find the document first, then get the user
+  const document = await prisma.userIdDocument.findUnique({
+    where: { id: documentId },
     include: {
-      id_documents: true,
+      user: true,
     },
   });
+
+  if (!document) {
+    return res.status(404).json({
+      success: false,
+      message: "Document not found",
+    });
+  }
+
+  const user = document.user;
 
   if (!user) {
     return res.status(404).json({
@@ -2115,21 +2145,21 @@ const setUserIdPending = asyncHandler(async (req, res) => {
     });
   }
 
-  if (!user.id_documents || user.id_documents.length === 0) {
+  // Check if document is already pending
+  if (document.status === "pending") {
     return res.status(400).json({
       success: false,
-      message: "User has not uploaded any ID documents",
+      message: "Document is already pending",
     });
   }
 
   const now = new Date();
 
+  // Update the specific document inside a transaction
   const result = await prisma.$transaction(async (tx) => {
-    await tx.userIdDocument.updateMany({
-      where: {
-        user_id: id,
-      },
-
+    // ✅ Set only this specific document to pending
+    const updatedDocument = await tx.userIdDocument.update({
+      where: { id: documentId },
       data: {
         status: "pending",
         rejection_reason: null,
@@ -2139,42 +2169,44 @@ const setUserIdPending = asyncHandler(async (req, res) => {
       },
     });
 
+    // Check if any document is still rejected
+    const allDocuments = await tx.userIdDocument.findMany({
+      where: { user_id: user.id },
+    });
+
+    const hasRejected = allDocuments.some(doc => doc.status === "rejected");
+
+    // Update host details
     const hostDetails = user.host_details || {};
 
-    const updatedHostDetails = {
-      ...hostDetails,
+    if (!hasRejected) {
+      const updatedHostDetails = {
+        ...hostDetails,
+        id_verified: false,
+        id_verified_at: null,
+        id_rejected: false,
+        id_rejection_reason: null,
+      };
 
-      id_verified: false,
-      id_verified_at: null,
-
-      id_rejected: false,
-      id_rejection_reason: null,
-    };
-
-    return tx.user.update({
-      where: { id },
-
-      data: {
-        host_details: updatedHostDetails,
-      },
-
-      include: {
-        id_documents: {
-          orderBy: {
-            created_at: "desc",
-          },
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          host_details: updatedHostDetails,
         },
-      },
-    });
+      });
+    }
+
+    return updatedDocument;
   });
 
-  await redisHelpers.del(`user:${id}`);
+  // Clear Redis cache
+  await redisHelpers.del(`user:${user.id}`);
   await redisHelpers.del("admin:stats");
 
   res.status(200).json({
     success: true,
-    message: "ID status changed to pending",
-    user: result,
+    message: "Document status changed to pending",
+    data: result,
   });
 });
 
@@ -2316,4 +2348,5 @@ module.exports = {
   setUserIdPending,
   approveUserId,
   rejectUserId,
+  
 };
