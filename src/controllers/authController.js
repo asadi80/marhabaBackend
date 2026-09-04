@@ -499,29 +499,21 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
 
     const idVerified =
       idDocuments.length > 0 &&
-      idDocuments.every(
-        (document) => document.status === "approved"
-      );
+      idDocuments.every((document) => document.status === "approved");
 
     const idRejected = idDocuments.some(
-      (document) => document.status === "rejected"
+      (document) => document.status === "rejected",
     );
 
     const rejectedIdDocument = idDocuments.find(
-      (document) => document.status === "rejected"
+      (document) => document.status === "rejected",
     );
 
     const latestApprovedIdDocument = idDocuments
       .filter(
-        (document) =>
-          document.status === "approved" &&
-          document.reviewed_at
+        (document) => document.status === "approved" && document.reviewed_at,
       )
-      .sort(
-        (a, b) =>
-          new Date(b.reviewed_at) -
-          new Date(a.reviewed_at)
-      )[0];
+      .sort((a, b) => new Date(b.reviewed_at) - new Date(a.reviewed_at))[0];
 
     // ============================================================
     // NON-HOST USER
@@ -537,8 +529,7 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
 
             documents: idDocuments,
 
-            status:
-              idDocuments[0]?.status || "pending",
+            status: idDocuments[0]?.status || "pending",
 
             verified: idVerified,
 
@@ -548,11 +539,11 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
 
             rejected: idRejected,
 
-            rejection_reason:
-              rejectedIdDocument?.rejection_reason || null,
+            rejection_reason: rejectedIdDocument?.rejection_reason || null,
           },
 
           payment: {
+            // Summary fields
             uploaded: false,
             status: "pending",
             amount: null,
@@ -560,6 +551,17 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
             approved_at: null,
             rejected: false,
             rejection_reason: null,
+            // Full payment model fields (all null for non-host)
+            id: null,
+            host_id: null,
+            paid_at: null,
+            period_start: null,
+            period_end: null,
+            reference: null,
+            notes: null,
+            receipt_images: [],
+            created_at: null,
+            updated_at: null,
           },
 
           overall_status: user.status,
@@ -573,19 +575,13 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
 
     const hostDetails = user.host_details || {};
 
-    const latestPayment =
-      user.host_subscription_payments[0] || null;
+    const latestPayment = user.host_subscription_payments[0] || null;
 
-    const paymentRejected =
-      hostDetails.payment_rejected || false;
+    const paymentRejected = hostDetails.payment_rejected || false;
 
-    const paymentStatus = latestPayment
-      ? latestPayment.status
-      : "pending";
+    const paymentStatus = latestPayment ? latestPayment.status : "pending";
 
-    const finalPaymentStatus = paymentRejected
-      ? "rejected"
-      : paymentStatus;
+    const finalPaymentStatus = paymentRejected ? "rejected" : paymentStatus;
 
     // ============================================================
     // FINAL VERIFICATION STATUS
@@ -597,8 +593,7 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
 
         documents: idDocuments,
 
-        status:
-          idDocuments[0]?.status || "pending",
+        status: idDocuments[0]?.status || "pending",
 
         verified: idVerified,
 
@@ -608,35 +603,27 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
 
         rejected: idRejected,
 
-        rejection_reason:
-          rejectedIdDocument?.rejection_reason || null,
+        rejection_reason: rejectedIdDocument?.rejection_reason || null,
       },
 
       payment: {
-        uploaded:
-          !!(
-            latestPayment &&
-            latestPayment.receipt_images &&
-            latestPayment.receipt_images.length > 0
-          ),
+        uploaded: !!(
+          latestPayment &&
+          latestPayment.receipt_images &&
+          latestPayment.receipt_images.length > 0
+        ),
 
         status: finalPaymentStatus,
 
-        amount: latestPayment
-          ? latestPayment.amount
-          : null,
+        amount: latestPayment ? latestPayment.amount : null,
 
-        submitted_at: latestPayment
-          ? latestPayment.created_at
-          : null,
+        submitted_at: latestPayment ? latestPayment.created_at : null,
 
-        approved_at:
-          hostDetails.payment_verified_at || null,
+        approved_at: hostDetails.payment_verified_at || null,
 
         rejected: paymentRejected,
 
-        rejection_reason:
-          hostDetails.payment_rejection_reason || null,
+        rejection_reason: hostDetails.payment_rejection_reason || null,
       },
 
       overall_status: user.status,
@@ -647,19 +634,13 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
       data: verificationStatus,
     });
   } catch (error) {
-    console.error(
-      "❌ Error fetching host verification status:",
-      error
-    );
+    console.error("❌ Error fetching host verification status:", error);
 
     return res.status(500).json({
       success: false,
       message: "Failed to fetch host verification status",
 
-      error:
-        process.env.NODE_ENV === "development"
-          ? error.message
-          : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 });
