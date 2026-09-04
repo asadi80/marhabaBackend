@@ -191,25 +191,25 @@ router.put(
 );
 
 router.put(
-  "/doc/:userId/reject",
+  "/doc/:documentId/reject",
   authorize("admin", "super_admin"),
-  commonValidators.id("paymentId"),
+  commonValidators.id("documentId"),
   handleValidationErrors,
   adminController.rejectUserId
 );
 
 router.put(
-  "/doc/:userId/pending",
+  "/doc/:documentId/pending",
   authorize("admin", "super_admin"),
-  commonValidators.id("paymentId"),
+  commonValidators.id("documentId"),
   handleValidationErrors,
   adminController.setUserIdPending
 );
 
 router.put(
-  "/doc/:userId/approve",
+  "/doc/:documentId/approve",
   authorize("admin", "super_admin"),
-  commonValidators.id("paymentId"),
+  commonValidators.id("documentId"),
   handleValidationErrors,
   adminController.approveUserId
 );
