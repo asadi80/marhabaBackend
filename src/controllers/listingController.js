@@ -7,15 +7,78 @@ const { paginate, paginationMeta } = require('../utils/helpers');
 // @route   POST /api/v1/listings
 // @access  Private (Host only)
 const createListing = asyncHandler(async (req, res) => {
+  const {
+    title,
+    description,
+    price,
+    location,
+    latitude,
+    longitude,
+    coordinates,
+    images,
+    category,
+    amenities,
+    rules,
+    cancellation_policy,
+  } = req.body;
+
+  // Support coordinates from frontend
+  let finalLatitude = latitude;
+  let finalLongitude = longitude;
+
+  if (coordinates) {
+    if (coordinates.lat !== undefined) {
+      finalLatitude = coordinates.lat;
+    }
+
+    if (coordinates.lng !== undefined) {
+      finalLongitude = coordinates.lng;
+    }
+  }
+
   const data = {
-    ...req.body,
+    title,
+    description,
+    price: parseFloat(price),
+    location,
+
+    latitude:
+      finalLatitude !== undefined &&
+      finalLatitude !== null &&
+      finalLatitude !== ""
+        ? parseFloat(finalLatitude)
+        : null,
+
+    longitude:
+      finalLongitude !== undefined &&
+      finalLongitude !== null &&
+      finalLongitude !== ""
+        ? parseFloat(finalLongitude)
+        : null,
+
+    images: Array.isArray(images) ? images : [],
+
+    category: category || "city",
+
+    amenities: Array.isArray(amenities)
+      ? amenities
+      : [],
+
+    rules: Array.isArray(rules)
+      ? rules
+      : [],
+
+    cancellation_policy:
+      cancellation_policy || {
+        type: "flexible",
+        description: "",
+        rules: [],
+      },
+
     host_id: req.user.id,
-    price: parseFloat(req.body.price),
   };
 
-  // Validate latitude and longitude
-  if (data.latitude) data.latitude = parseFloat(data.latitude);
-  if (data.longitude) data.longitude = parseFloat(data.longitude);
+  console.log("📦 Creating listing with data:", data);
 
   const listing = await prisma.listing.create({
     data,
@@ -31,21 +94,24 @@ const createListing = asyncHandler(async (req, res) => {
     },
   });
 
-  // Update host total listings count
-  const hostDetails = {
-    ...listing.host.host_details,
-    totalListings: {
-      increment: 1,
-    },
-  };
+  // Update host listing count
+  const currentHostDetails =
+    listing.host?.host_details || {};
 
   await prisma.user.update({
-    where: { id: req.user.id },
-    data: { host_details: hostDetails },
+    where: {
+      id: req.user.id,
+    },
+    data: {
+      host_details: {
+        ...currentHostDetails,
+        totalListings:
+          (Number(currentHostDetails.totalListings) || 0) + 1,
+      },
+    },
   });
 
-  // Clear cache
-  await redisHelpers.deletePattern('listings:*');
+  await redisHelpers.deletePattern("listings:*");
 
   res.status(201).json({
     success: true,
