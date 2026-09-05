@@ -291,31 +291,241 @@ const getListing = asyncHandler(async (req, res) => {
 // @access  Private (Host only)
 const updateListing = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const data = req.body;
 
-  // Check if listing exists and belongs to user
-  const listing = await prisma.listing.findFirst({
+  const {
+    title,
+    description,
+    price,
+    location,
+    latitude,
+    longitude,
+    coordinates,
+    images,
+    category,
+    amenities,
+    rules,
+    cancellation_policy,
+    is_active,
+  } = req.body;
+
+  // =========================================================
+  // CHECK LISTING OWNERSHIP
+  // =========================================================
+
+  const existingListing = await prisma.listing.findFirst({
     where: {
       id,
       host_id: req.user.id,
     },
   });
 
-  if (!listing) {
+  if (!existingListing) {
     return res.status(404).json({
       success: false,
       message: "Listing not found or you are not the owner",
     });
   }
 
-  // Parse numeric values
-  if (data.price) data.price = parseFloat(data.price);
-  if (data.latitude) data.latitude = parseFloat(data.latitude);
-  if (data.longitude) data.longitude = parseFloat(data.longitude);
+  // =========================================================
+  // COORDINATES
+  // =========================================================
+
+  /*
+   * Support both:
+   *
+   * latitude / longitude
+   *
+   * and:
+   *
+   * coordinates: {
+   *   lat,
+   *   lng
+   * }
+   */
+
+  let finalLatitude = latitude;
+  let finalLongitude = longitude;
+
+  if (coordinates) {
+    if (coordinates.lat !== undefined) {
+      finalLatitude = coordinates.lat;
+    }
+
+    if (coordinates.lng !== undefined) {
+      finalLongitude = coordinates.lng;
+    }
+  }
+
+  // =========================================================
+  // BUILD UPDATE DATA
+  // =========================================================
+
+  const data = {};
+
+  // ---------------------------------------------------------
+  // Basic fields
+  // ---------------------------------------------------------
+
+  if (title !== undefined) {
+    data.title = title;
+  }
+
+  if (description !== undefined) {
+    data.description = description;
+  }
+
+  if (location !== undefined) {
+    data.location = location;
+  }
+
+  // ---------------------------------------------------------
+  // Price
+  // ---------------------------------------------------------
+
+  if (price !== undefined && price !== null && price !== "") {
+    const parsedPrice = parseFloat(price);
+
+    if (Number.isNaN(parsedPrice)) {
+      return res.status(400).json({
+        success: false,
+        message: "Price must be a valid number",
+      });
+    }
+
+    data.price = parsedPrice;
+  }
+
+  // ---------------------------------------------------------
+  // Latitude
+  // ---------------------------------------------------------
+
+  if (
+    finalLatitude !== undefined &&
+    finalLatitude !== null &&
+    finalLatitude !== ""
+  ) {
+    const parsedLatitude = parseFloat(finalLatitude);
+
+    if (Number.isNaN(parsedLatitude)) {
+      return res.status(400).json({
+        success: false,
+        message: "Latitude must be a valid number",
+      });
+    }
+
+    if (parsedLatitude < -90 || parsedLatitude > 90) {
+      return res.status(400).json({
+        success: false,
+        message: "Latitude must be between -90 and 90",
+      });
+    }
+
+    data.latitude = parsedLatitude;
+  } else if (finalLatitude === null || finalLatitude === "") {
+    data.latitude = null;
+  }
+
+  // ---------------------------------------------------------
+  // Longitude
+  // ---------------------------------------------------------
+
+  if (
+    finalLongitude !== undefined &&
+    finalLongitude !== null &&
+    finalLongitude !== ""
+  ) {
+    const parsedLongitude = parseFloat(finalLongitude);
+
+    if (Number.isNaN(parsedLongitude)) {
+      return res.status(400).json({
+        success: false,
+        message: "Longitude must be a valid number",
+      });
+    }
+
+    if (parsedLongitude < -180 || parsedLongitude > 180) {
+      return res.status(400).json({
+        success: false,
+        message: "Longitude must be between -180 and 180",
+      });
+    }
+
+    data.longitude = parsedLongitude;
+  } else if (finalLongitude === null || finalLongitude === "") {
+    data.longitude = null;
+  }
+
+  // ---------------------------------------------------------
+  // Images
+  // ---------------------------------------------------------
+
+  if (images !== undefined) {
+    data.images = Array.isArray(images) ? images : [];
+  }
+
+  // ---------------------------------------------------------
+  // Category
+  // ---------------------------------------------------------
+
+  if (category !== undefined) {
+    data.category = category || "city";
+  }
+
+  // ---------------------------------------------------------
+  // Amenities
+  // ---------------------------------------------------------
+
+  if (amenities !== undefined) {
+    data.amenities = Array.isArray(amenities) ? amenities : [];
+  }
+
+  // ---------------------------------------------------------
+  // Rules
+  // ---------------------------------------------------------
+
+  if (rules !== undefined) {
+    data.rules = Array.isArray(rules) ? rules : [];
+  }
+
+  // ---------------------------------------------------------
+  // Cancellation policy
+  // ---------------------------------------------------------
+
+  if (cancellation_policy !== undefined) {
+    data.cancellation_policy = cancellation_policy || {
+      type: "flexible",
+      description: "",
+      rules: [],
+    };
+  }
+
+  // ---------------------------------------------------------
+  // Active status
+  // ---------------------------------------------------------
+
+  if (is_active !== undefined) {
+    data.is_active = Boolean(is_active);
+  }
+
+  // =========================================================
+  // LOG
+  // =========================================================
+
+  console.log("📦 Updating listing:", id);
+
+  console.log("📦 Update data:", data);
+
+  // =========================================================
+  // UPDATE LISTING
+  // =========================================================
 
   const updatedListing = await prisma.listing.update({
-    where: { id },
+    where: {
+      id,
+    },
+
     data,
+
     include: {
       host: {
         select: {
@@ -328,9 +538,17 @@ const updateListing = asyncHandler(async (req, res) => {
     },
   });
 
-  // Clear cache
+  // =========================================================
+  // CLEAR CACHE
+  // =========================================================
+
   await redisHelpers.del(`listing:${id}`);
+
   await redisHelpers.deletePattern("listings:*");
+
+  // =========================================================
+  // RESPONSE
+  // =========================================================
 
   res.status(200).json({
     success: true,
