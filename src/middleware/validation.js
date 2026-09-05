@@ -165,15 +165,15 @@ const listingValidators = {
       .trim()
       .notEmpty()
       .withMessage("Title is required")
-      .isLength({ min: 5, max: 255 })
-      .withMessage("Title must be 5-255 characters"),
+      .isLength({ min: 1, max: 255 })
+      .withMessage("Title must be 1-255 characters"),
 
     body("description")
       .trim()
       .notEmpty()
       .withMessage("Description is required")
-      .isLength({ min: 20, max: 5000 })
-      .withMessage("Description must be 20-5000 characters"),
+      .isLength({ min: 1, max: 5000 })
+      .withMessage("Description must be 1-5000 characters"),
 
     body("price")
       .notEmpty()
@@ -203,8 +203,8 @@ const listingValidators = {
     body("title")
       .optional()
       .trim()
-      .isLength({ min: 5, max: 255 })
-      .withMessage("Title must be 5-255 characters"),
+      .isLength({ min: 3, max: 255 })
+      .withMessage("Title must be 3-255 characters"),
 
     body("price")
       .optional()
