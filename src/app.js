@@ -12,7 +12,7 @@ const uploadRoutes = require("./routes/uploadRoutes");
 const authRoutes = require("./routes/authRoutes");
 const listingRoutes = require("./routes/listingRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
-const AdminRoutes = require('./routes/adminRoutes')
+const AdminRoutes = require("./routes/adminRoutes");
 const databaseRoutes = require("./routes/databaseRoutes");
 const app = express();
 const logger = require("./middleware/logger");
@@ -27,7 +27,7 @@ app.use(
   }),
 );
 
-//  CORS Configuration 
+//  CORS Configuration
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin
@@ -58,20 +58,10 @@ const corsOptions = {
 
   credentials: true,
 
-  methods: [
-    "GET",
-    "POST",
-    "PUT",
-    "DELETE",
-    "PATCH",
-    "OPTIONS",
-  ],
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
 
   allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "X-Requested-With",
-    "Accept",
+    ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
   ],
 
   optionsSuccessStatus: 204,
@@ -80,10 +70,6 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // Explicitly handle preflight requests
-
-
-
-
 
 // Compression
 app.use(compression());
