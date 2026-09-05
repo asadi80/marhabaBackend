@@ -915,7 +915,7 @@ module.exports = {
   createBooking,
   getMyBookings,
   getHostBookings,
-  getBooking,
+ getBookingById,
   updateBookingStatus,
   cancelBooking,
   checkAvailability,
