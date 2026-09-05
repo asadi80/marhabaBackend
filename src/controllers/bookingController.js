@@ -376,7 +376,7 @@ const getHostBookings = asyncHandler(async (req, res) => {
 // @desc    Get single booking
 // @route   GET /api/v1/bookings/:id
 // @access  Private
-const getBooking = asyncHandler(async (req, res) => {
+const getBookingById = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   const booking = await prisma.booking.findUnique({

@@ -25,9 +25,17 @@ router.get('/host', isHost, bookingController.getHostBookings);
 // Get host stats (host only)
 router.get('/stats/host', isHost, bookingController.getHostStats);
 
+// Get single booking
+router.get(
+  '/',
+  commonValidators.id(),
+  handleValidationErrors,
+  bookingController.getMyBookings
+);
+
 // Create booking
 router.post(
-  '/',
+  '/create',
   bookingValidators.create,
   handleValidationErrors,
   bookingController.createBooking
@@ -38,7 +46,7 @@ router.get(
   '/:id',
   commonValidators.id(),
   handleValidationErrors,
-  bookingController.getBooking
+  bookingController.getBookingById
 );
 
 // Update booking status
