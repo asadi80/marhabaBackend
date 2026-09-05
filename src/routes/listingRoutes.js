@@ -37,4 +37,13 @@ router.delete('/:id',
   listingController.deleteListing
 );
 
+
+router.patch(
+  '/:id/toggle-active',
+  protect,
+  toggleListingActive
+);
+
+
+
 module.exports = router;

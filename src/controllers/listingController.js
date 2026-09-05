@@ -1,7 +1,7 @@
-const { prisma } = require('../config/database');
-const { redisHelpers } = require('../config/redis');
-const { asyncHandler } = require('../middleware/errorHandler');
-const { paginate, paginationMeta } = require('../utils/helpers');
+const { prisma } = require("../config/database");
+const { redisHelpers } = require("../config/redis");
+const { asyncHandler } = require("../middleware/errorHandler");
+const { paginate, paginationMeta } = require("../utils/helpers");
 
 // @desc    Create listing
 // @route   POST /api/v1/listings
@@ -60,20 +60,15 @@ const createListing = asyncHandler(async (req, res) => {
 
     category: category || "city",
 
-    amenities: Array.isArray(amenities)
-      ? amenities
-      : [],
+    amenities: Array.isArray(amenities) ? amenities : [],
 
-    rules: Array.isArray(rules)
-      ? rules
-      : [],
+    rules: Array.isArray(rules) ? rules : [],
 
-    cancellation_policy:
-      cancellation_policy || {
-        type: "flexible",
-        description: "",
-        rules: [],
-      },
+    cancellation_policy: cancellation_policy || {
+      type: "flexible",
+      description: "",
+      rules: [],
+    },
 
     host_id: req.user.id,
   };
@@ -95,8 +90,7 @@ const createListing = asyncHandler(async (req, res) => {
   });
 
   // Update host listing count
-  const currentHostDetails =
-    listing.host?.host_details || {};
+  const currentHostDetails = listing.host?.host_details || {};
 
   await prisma.user.update({
     where: {
@@ -105,8 +99,7 @@ const createListing = asyncHandler(async (req, res) => {
     data: {
       host_details: {
         ...currentHostDetails,
-        totalListings:
-          (Number(currentHostDetails.totalListings) || 0) + 1,
+        totalListings: (Number(currentHostDetails.totalListings) || 0) + 1,
       },
     },
   });
@@ -128,7 +121,7 @@ const getListings = asyncHandler(async (req, res) => {
 
   // Build filter
   const where = {
-    status: 'active',
+    status: "active",
     is_active: true,
   };
 
@@ -145,23 +138,24 @@ const getListings = asyncHandler(async (req, res) => {
   if (location) {
     where.location = {
       contains: location,
-      mode: 'insensitive',
+      mode: "insensitive",
     };
   }
 
   if (search) {
     where.OR = [
-      { title: { contains: search, mode: 'insensitive' } },
-      { description: { contains: search, mode: 'insensitive' } },
-      { location: { contains: search, mode: 'insensitive' } },
+      { title: { contains: search, mode: "insensitive" } },
+      { description: { contains: search, mode: "insensitive" } },
+      { location: { contains: search, mode: "insensitive" } },
     ];
   }
 
   // Build sort
-  let orderBy = { created_at: 'desc' };
-  if (sort === 'price_asc') orderBy = { price: 'asc' };
-  if (sort === 'price_desc') orderBy = { price: 'desc' };
-  if (sort === 'rating') orderBy = { host: { host_details: { rating: 'desc' } } };
+  let orderBy = { created_at: "desc" };
+  if (sort === "price_asc") orderBy = { price: "asc" };
+  if (sort === "price_desc") orderBy = { price: "desc" };
+  if (sort === "rating")
+    orderBy = { host: { host_details: { rating: "desc" } } };
 
   // Try cache
   const cacheKey = `listings:${JSON.stringify({ where, orderBy, skip: paginate.skip, take: paginate.take })}`;
@@ -193,7 +187,7 @@ const getListings = asyncHandler(async (req, res) => {
         },
         bookings: {
           where: {
-            status: { in: ['confirmed', 'checked_in'] },
+            status: { in: ["confirmed", "checked_in"] },
           },
           select: {
             check_in: true,
@@ -260,7 +254,7 @@ const getListing = asyncHandler(async (req, res) => {
       },
       bookings: {
         where: {
-          status: { in: ['confirmed', 'checked_in'] },
+          status: { in: ["confirmed", "checked_in"] },
         },
         select: {
           check_in: true,
@@ -273,7 +267,7 @@ const getListing = asyncHandler(async (req, res) => {
   if (!listing) {
     return res.status(404).json({
       success: false,
-      message: 'Listing not found',
+      message: "Listing not found",
     });
   }
 
@@ -310,7 +304,7 @@ const updateListing = asyncHandler(async (req, res) => {
   if (!listing) {
     return res.status(404).json({
       success: false,
-      message: 'Listing not found or you are not the owner',
+      message: "Listing not found or you are not the owner",
     });
   }
 
@@ -336,7 +330,7 @@ const updateListing = asyncHandler(async (req, res) => {
 
   // Clear cache
   await redisHelpers.del(`listing:${id}`);
-  await redisHelpers.deletePattern('listings:*');
+  await redisHelpers.deletePattern("listings:*");
 
   res.status(200).json({
     success: true,
@@ -359,7 +353,7 @@ const deleteListing = asyncHandler(async (req, res) => {
     include: {
       bookings: {
         where: {
-          status: { in: ['pending', 'confirmed'] },
+          status: { in: ["pending", "confirmed"] },
         },
       },
     },
@@ -368,7 +362,7 @@ const deleteListing = asyncHandler(async (req, res) => {
   if (!listing) {
     return res.status(404).json({
       success: false,
-      message: 'Listing not found or you are not the owner',
+      message: "Listing not found or you are not the owner",
     });
   }
 
@@ -376,7 +370,7 @@ const deleteListing = asyncHandler(async (req, res) => {
   if (listing.bookings.length > 0) {
     return res.status(400).json({
       success: false,
-      message: 'Cannot delete listing with active bookings',
+      message: "Cannot delete listing with active bookings",
     });
   }
 
@@ -385,17 +379,17 @@ const deleteListing = asyncHandler(async (req, res) => {
     where: { id },
     data: {
       is_active: false,
-      status: 'inactive',
+      status: "inactive",
     },
   });
 
   // Clear cache
   await redisHelpers.del(`listing:${id}`);
-  await redisHelpers.deletePattern('listings:*');
+  await redisHelpers.deletePattern("listings:*");
 
   res.status(200).json({
     success: true,
-    message: 'Listing deactivated successfully',
+    message: "Listing deactivated successfully",
   });
 });
 
@@ -408,13 +402,13 @@ const getHostListings = asyncHandler(async (req, res) => {
 
   const where = {
     host_id: hostId,
-    ...(req.user?.id !== hostId && { status: 'active', is_active: true }),
+    ...(req.user?.id !== hostId && { status: "active", is_active: true }),
   };
 
   const [listings, total] = await Promise.all([
     prisma.listing.findMany({
       where,
-      orderBy: { created_at: 'desc' },
+      orderBy: { created_at: "desc" },
       skip: paginate.skip,
       take: paginate.take,
       include: {
@@ -429,7 +423,7 @@ const getHostListings = asyncHandler(async (req, res) => {
         },
         bookings: {
           where: {
-            status: { in: ['confirmed', 'checked_in'] },
+            status: { in: ["confirmed", "checked_in"] },
           },
           select: {
             check_in: true,
@@ -450,6 +444,70 @@ const getHostListings = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Toggle listing active status
+// @route   PATCH /api/v1/listings/:id/toggle-active
+// @access  Private (Host only)
+const toggleListingActive = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  // Check if listing exists and belongs to logged-in host
+  const listing = await prisma.listing.findFirst({
+    where: {
+      id,
+      host_id: req.user.id,
+    },
+    select: {
+      id: true,
+      is_active: true,
+      status: true,
+    },
+  });
+
+  if (!listing) {
+    return res.status(404).json({
+      success: false,
+      message: "Listing not found or you are not the owner",
+      code: "LISTING_NOT_FOUND",
+    });
+  }
+
+  // Toggle active status
+  const newIsActive = !listing.is_active;
+
+  // Keep status consistent with is_active
+  const newStatus = newIsActive ? "active" : "inactive";
+
+  const updatedListing = await prisma.listing.update({
+    where: {
+      id,
+    },
+    data: {
+      is_active: newIsActive,
+      status: newStatus,
+      updated_at: new Date(),
+    },
+    select: {
+      id: true,
+      is_active: true,
+      status: true,
+      updated_at: true,
+    },
+  });
+
+  // Clear listing caches
+  await redisHelpers.del(`listing:${id}`);
+  await redisHelpers.deletePattern("listings:*");
+
+  // Return response
+  return res.status(200).json({
+    success: true,
+    message: newIsActive
+      ? "Listing activated successfully"
+      : "Listing deactivated successfully",
+    data: updatedListing,
+  });
+});
+
 module.exports = {
   createListing,
   getListings,
@@ -457,4 +515,5 @@ module.exports = {
   updateListing,
   deleteListing,
   getHostListings,
+  toggleListingActive,
 };
