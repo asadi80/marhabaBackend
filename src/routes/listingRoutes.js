@@ -1,53 +1,76 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const listingController = require('../controllers/listingController');
-const { protect, isHost } = require('../middleware/auth');
-const { listingValidators, commonValidators, handleValidationErrors } = require('../middleware/validation');
-const { listingLimiter } = require('../middleware/rateLimiter');
+const listingController = require("../controllers/listingController");
+const { protect, isHost } = require("../middleware/auth");
+const {
+  listingValidators,
+  commonValidators,
+  handleValidationErrors,
+} = require("../middleware/validation");
+const { listingLimiter } = require("../middleware/rateLimiter");
 
 // Public routes
-router.get('/', listingController.getListings);
-router.get('/:id', commonValidators.id(), handleValidationErrors, listingController.getListing);
-router.get('/host/:hostId', commonValidators.id('hostId'), handleValidationErrors, listingController.getHostListings);
+router.get("/", listingController.getListings);
+router.get(
+  "/user/:id",
+  commonValidators.id(),
+  handleValidationErrors,
+  listingController.getListingForUser,
+);
+router.get(
+  "/host/:hostId",
+  commonValidators.id("hostId"),
+  handleValidationErrors,
+  listingController.getHostListings,
+);
 
 // Protected routes
-router.post('/',
+
+router.get(
+  "/:id",
+   protect,
+  isHost,
+  commonValidators.id(),
+  handleValidationErrors,
+  listingController.getListing,
+);
+
+router.post(
+  "/",
   protect,
   isHost,
-  listingLimiter,
   listingValidators.create,
   handleValidationErrors,
-  listingController.createListing
+  listingController.createListing,
 );
 
-router.put('/:id',
+router.put(
+  "/:id",
   protect,
   isHost,
   commonValidators.id(),
   listingValidators.update,
   handleValidationErrors,
-  listingController.updateListing
+  listingController.updateListing,
 );
 
-router.delete('/:id',
+router.delete(
+  "/:id",
   protect,
   isHost,
   commonValidators.id(),
   handleValidationErrors,
-  listingController.deleteListing
+  listingController.deleteListing,
 );
-
 
 router.patch(
-  '/:id/toggle-active',
+  "/:id/toggle-active",
   protect,
   isHost,
   commonValidators.id(),
   listingValidators.update,
   handleValidationErrors,
-  listingController.toggleListingActive
+  listingController.toggleListingActive,
 );
-
-
 
 module.exports = router;

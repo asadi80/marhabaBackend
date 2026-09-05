@@ -726,6 +726,106 @@ const toggleListingActive = asyncHandler(async (req, res) => {
   });
 });
 
+
+const getListingForUser = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const cacheKey = `listing:${id}`;
+
+  // Check cache
+  const cachedListing = await redisHelpers.get(cacheKey);
+
+  if (cachedListing) {
+    return res.status(200).json({
+      success: true,
+      data: cachedListing,
+    });
+  }
+
+  const listing = await prisma.listing.findUnique({
+    where: {
+      id,
+    },
+
+    include: {
+      // PUBLIC HOST INFORMATION ONLY
+      host: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone_number: true,
+          host_details: true,
+          created_at: true,
+
+          // ❌ DO NOT INCLUDE:
+          // id_images
+          // id_documents
+          // payment receipts
+          // verification documents
+        },
+      },
+
+      // Only booking dates are needed to show availability
+      bookings: {
+        where: {
+          status: {
+            in: ["confirmed", "checked_in"],
+          },
+        },
+        select: {
+          check_in: true,
+          check_out: true,
+        },
+      },
+    },
+  });
+
+  if (!listing) {
+    return res.status(404).json({
+      success: false,
+      message: "Listing not found",
+    });
+  }
+
+  // Convert Prisma Decimal values to normal numbers
+  const responseListing = {
+    ...listing,
+
+    latitude:
+      listing.latitude !== null
+        ? Number(listing.latitude)
+        : null,
+
+    longitude:
+      listing.longitude !== null
+        ? Number(listing.longitude)
+        : null,
+
+    // Frontend-friendly coordinates
+    coordinates:
+      listing.latitude !== null &&
+      listing.longitude !== null
+        ? {
+            lat: Number(listing.latitude),
+            lng: Number(listing.longitude),
+          }
+        : null,
+  };
+
+  // Cache for 5 minutes
+  await redisHelpers.set(
+    cacheKey,
+    responseListing,
+    300
+  );
+
+  return res.status(200).json({
+    success: true,
+    data: responseListing,
+  });
+});
+
 module.exports = {
   createListing,
   getListings,
@@ -734,4 +834,5 @@ module.exports = {
   deleteListing,
   getHostListings,
   toggleListingActive,
+  getListingForUser
 };
