@@ -40,6 +40,7 @@ router.delete('/:id',
 
 router.patch(
   '/:id/toggle-active',
+  protect,
   isHost,
   commonValidators.id(),
   listingValidators.update,
