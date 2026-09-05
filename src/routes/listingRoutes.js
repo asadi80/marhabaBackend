@@ -40,8 +40,11 @@ router.delete('/:id',
 
 router.patch(
   '/:id/toggle-active',
-  protect,
-  toggleListingActive
+  isHost,
+  commonValidators.id(),
+  listingValidators.update,
+  handleValidationErrors,
+  listingController.toggleListingActive
 );
 
 
