@@ -99,37 +99,33 @@ const userValidators = {
     body("role").optional().isIn(["user", "host"]).withMessage("Invalid role"),
   ],
 
-  createAdmin :[
-    body('name')
-      .trim()
-      .notEmpty()
-      .withMessage('Name is required'),
+  createAdmin: [
+    body("name").trim().notEmpty().withMessage("Name is required"),
 
-    body('email')
+    body("email")
       .trim()
       .notEmpty()
-      .withMessage('Email is required')
+      .withMessage("Email is required")
       .isEmail()
-      .withMessage('Invalid email format')
+      .withMessage("Invalid email format")
       .normalizeEmail(),
 
-    body('password')
+    body("password")
       .notEmpty()
-      .withMessage('Password is required')
+      .withMessage("Password is required")
       .isLength({ min: 8 })
-      .withMessage('Password must be at least 8 characters'),
+      .withMessage("Password must be at least 8 characters"),
 
-    body('phone_number')
+    body("phone_number")
       .trim()
       .notEmpty()
-      .withMessage('Phone number is required'),
+      .withMessage("Phone number is required"),
 
-    body('role')
+    body("role")
       .optional()
-      .isIn(['admin', 'super_admin'])
-      .withMessage('Invalid admin role'),
+      .isIn(["admin", "super_admin"])
+      .withMessage("Invalid admin role"),
   ],
-
 
   login: [
     body("email")
@@ -195,8 +191,28 @@ const listingValidators = {
 
     body("cancellation_policy")
       .optional()
-      .isIn(["flexible", "moderate", "strict"])
+      .isObject()
       .withMessage("Invalid cancellation policy"),
+
+    body("cancellation_policy.type")
+      .optional()
+      .isIn(["flexible", "moderate", "strict"])
+      .withMessage("Invalid cancellation policy type"),
+
+    body("cancellation_policy.description")
+      .optional()
+      .isString()
+      .withMessage("Invalid cancellation policy description"),
+
+    body("cancellation_policy.rules")
+      .optional()
+      .isArray()
+      .withMessage("Invalid cancellation policy rules"),
+
+    body("cancellation_policy.rules.*")
+      .optional()
+      .isString()
+      .withMessage("Invalid cancellation policy rule"),
   ],
 
   update: [
