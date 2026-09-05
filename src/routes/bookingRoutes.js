@@ -1,66 +1,123 @@
-//src/routes/bookingRoutes.js
-const express = require('express');
+// src/routes/bookingRoutes.js
+
+const express = require("express");
+
 const router = express.Router();
-const bookingController = require('../controllers/bookingController');
-const { protect, isHost, authorize } = require('../middleware/auth');
-const { 
-  bookingValidators, 
-  commonValidators, 
-  handleValidationErrors 
-} = require('../middleware/validation');
-const { apiLimiter } = require('../middleware/rateLimiter');
 
-// Public routes (with rate limiting)
-router.post('/check-availability', apiLimiter, bookingController.checkAvailability);
+const bookingController = require("../controllers/bookingController");
 
-// Protected routes - All booking routes require authentication
+const {
+  protect,
+  isHost,
+} = require("../middleware/auth");
+
+const {
+  bookingValidators,
+  commonValidators,
+  handleValidationErrors,
+} = require("../middleware/validation");
+
+const { apiLimiter } = require("../middleware/rateLimiter");
+
+// ============================================================
+// PUBLIC ROUTES
+// ============================================================
+
+// Check booking availability
+router.post(
+  "/check-availability",
+  apiLimiter,
+  bookingController.checkAvailability
+);
+
+// ============================================================
+// PROTECTED ROUTES
+// ============================================================
+
 router.use(protect);
 
-// Get bookings for current user
-router.get('/my-booking', bookingController.getMyBookings);
+// ============================================================
+// CURRENT USER BOOKINGS
+// ============================================================
 
-// Get host bookings (host only)
-router.get('/host', isHost, bookingController.getHostBookings);
-
-// Get host stats (host only)
-router.get('/stats/host', isHost, bookingController.getHostStats);
-
-// Get single booking
+// GET /api/v1/bookings
 router.get(
-  '/',
-  commonValidators.id(),
-  handleValidationErrors,
+  "/",
   bookingController.getMyBookings
 );
 
-// Create booking
+// GET /api/v1/bookings/my-booking
+router.get(
+  "/my-booking",
+  bookingController.getMyBookings
+);
+
+// ============================================================
+// HOST BOOKINGS
+// ============================================================
+
+// GET /api/v1/bookings/host
+router.get(
+  "/host",
+  isHost,
+  bookingController.getHostBookings
+);
+
+// ============================================================
+// HOST STATS
+// ============================================================
+
+// GET /api/v1/bookings/stats/host
+router.get(
+  "/stats/host",
+  isHost,
+  bookingController.getHostStats
+);
+
+// ============================================================
+// CREATE BOOKING
+// ============================================================
+
+// POST /api/v1/bookings/create
 router.post(
-  '/create',
+  "/create",
   bookingValidators.create,
   handleValidationErrors,
   bookingController.createBooking
 );
 
-// Get single booking
+// ============================================================
+// SINGLE BOOKING
+// ============================================================
+
+// GET /api/v1/bookings/:id
 router.get(
-  '/:id',
+  "/:id",
   commonValidators.id(),
   handleValidationErrors,
   bookingController.getBookingById
 );
 
-// Update booking status
+// ============================================================
+// UPDATE BOOKING STATUS
+// ============================================================
+
+// PUT /api/v1/bookings/:id/status
 router.put(
-  '/:id/status',
+  "/:id/status",
   commonValidators.id(),
   bookingValidators.status,
   handleValidationErrors,
   bookingController.updateBookingStatus
 );
 
-// Cancel booking
+// ============================================================
+// CANCEL BOOKING
+// ============================================================
+
+// POST /api/v1/bookings/:id/cancel
 router.post(
-  '/:id/cancel',
+  "/:id/cancel",
   commonValidators.id(),
   handleValidationErrors,
   bookingController.cancelBooking
