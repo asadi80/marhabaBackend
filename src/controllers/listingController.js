@@ -747,7 +747,7 @@ const getListingForUser = asyncHandler(async (req, res) => {
       id,
     },
 
-    include: {
+     include: {
       // PUBLIC HOST INFORMATION ONLY
       host: {
         select: {
@@ -786,40 +786,6 @@ const getListingForUser = asyncHandler(async (req, res) => {
     });
   }
 
-  /*
-   * Convert booking ranges into individual unavailable dates.
-   *
-   * Example:
-   * check_in  = 2026-09-28
-   * check_out = 2026-09-29
-   *
-   * Result:
-   * ["2026-09-28"]
-   *
-   * Checkout day remains available unless another booking blocks it.
-   */
-  const bookedDates = [];
-
-  for (const booking of listing.bookings || []) {
-    const current = new Date(booking.check_in);
-    const checkout = new Date(booking.check_out);
-
-    while (current < checkout) {
-      const year = current.getUTCFullYear();
-      const month = String(current.getUTCMonth() + 1).padStart(2, "0");
-      const day = String(current.getUTCDate()).padStart(2, "0");
-
-      bookedDates.push(`${year}-${month}-${day}`);
-
-      current.setUTCDate(current.getUTCDate() + 1);
-    }
-  }
-
-  /*
-   * Remove duplicates and sort dates.
-   */
-  const uniqueBookedDates = [...new Set(bookedDates)].sort();
-
   // Convert Prisma Decimal values to normal numbers
   const responseListing = {
     ...listing,
@@ -843,12 +809,6 @@ const getListingForUser = asyncHandler(async (req, res) => {
             lng: Number(listing.longitude),
           }
         : null,
-
-    // Frontend calendar data
-    bookedDates: uniqueBookedDates,
-
-    // Keep bookings as well if frontend needs the original ranges
-    bookings: listing.bookings || [],
   };
 
   // Cache for 5 minutes
