@@ -757,27 +757,25 @@ const getListingForUser = asyncHandler(async (req, res) => {
           phone_number: true,
           host_details: true,
           created_at: true,
-
-          // ❌ DO NOT INCLUDE:
-          // id_images
-          // id_documents
-          // payment receipts
-          // verification documents
         },
       },
 
-      // Only booking dates are needed to show availability
+      // Booking dates used for calendar availability
       bookings: {
         where: {
           status: {
-            in: ["confirmed", "checked_in"],
+            in: ["pending", "confirmed", "checked_in"],
           },
         },
         select: {
           check_in: true,
           check_out: true,
+          status: true,
         },
       },
+
+      // Host-blocked dates, if your Listing model has this relation
+      blocked_dates: true,
     },
   });
 
@@ -787,6 +785,40 @@ const getListingForUser = asyncHandler(async (req, res) => {
       message: "Listing not found",
     });
   }
+
+  /*
+   * Convert booking ranges into individual unavailable dates.
+   *
+   * Example:
+   * check_in  = 2026-09-28
+   * check_out = 2026-09-29
+   *
+   * Result:
+   * ["2026-09-28"]
+   *
+   * Checkout day remains available unless another booking blocks it.
+   */
+  const bookedDates = [];
+
+  for (const booking of listing.bookings || []) {
+    const current = new Date(booking.check_in);
+    const checkout = new Date(booking.check_out);
+
+    while (current < checkout) {
+      const year = current.getUTCFullYear();
+      const month = String(current.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(current.getUTCDate()).padStart(2, "0");
+
+      bookedDates.push(`${year}-${month}-${day}`);
+
+      current.setUTCDate(current.getUTCDate() + 1);
+    }
+  }
+
+  /*
+   * Remove duplicates and sort dates.
+   */
+  const uniqueBookedDates = [...new Set(bookedDates)].sort();
 
   // Convert Prisma Decimal values to normal numbers
   const responseListing = {
@@ -811,6 +843,12 @@ const getListingForUser = asyncHandler(async (req, res) => {
             lng: Number(listing.longitude),
           }
         : null,
+
+    // Frontend calendar data
+    bookedDates: uniqueBookedDates,
+
+    // Keep bookings as well if frontend needs the original ranges
+    bookings: listing.bookings || [],
   };
 
   // Cache for 5 minutes
