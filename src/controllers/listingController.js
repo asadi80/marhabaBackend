@@ -726,7 +726,6 @@ const toggleListingActive = asyncHandler(async (req, res) => {
   });
 });
 
-
 const getListingForUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -747,7 +746,7 @@ const getListingForUser = asyncHandler(async (req, res) => {
       id,
     },
 
-     include: {
+    include: {
       // PUBLIC HOST INFORMATION ONLY
       host: {
         select: {
@@ -760,7 +759,7 @@ const getListingForUser = asyncHandler(async (req, res) => {
         },
       },
 
-      // Booking dates used for calendar availability
+      // User bookings
       bookings: {
         where: {
           status: {
@@ -772,9 +771,12 @@ const getListingForUser = asyncHandler(async (req, res) => {
           check_out: true,
           status: true,
         },
+        orderBy: {
+          check_in: "asc",
+        },
       },
 
-      // Host-blocked dates, if your Listing model has this relation
+      // Host-blocked dates stored on Listing
       blocked_dates: true,
     },
   });
@@ -790,20 +792,13 @@ const getListingForUser = asyncHandler(async (req, res) => {
   const responseListing = {
     ...listing,
 
-    latitude:
-      listing.latitude !== null
-        ? Number(listing.latitude)
-        : null,
+    latitude: listing.latitude !== null ? Number(listing.latitude) : null,
 
-    longitude:
-      listing.longitude !== null
-        ? Number(listing.longitude)
-        : null,
+    longitude: listing.longitude !== null ? Number(listing.longitude) : null,
 
     // Frontend-friendly coordinates
     coordinates:
-      listing.latitude !== null &&
-      listing.longitude !== null
+      listing.latitude !== null && listing.longitude !== null
         ? {
             lat: Number(listing.latitude),
             lng: Number(listing.longitude),
@@ -812,11 +807,7 @@ const getListingForUser = asyncHandler(async (req, res) => {
   };
 
   // Cache for 5 minutes
-  await redisHelpers.set(
-    cacheKey,
-    responseListing,
-    300
-  );
+  await redisHelpers.set(cacheKey, responseListing, 300);
 
   return res.status(200).json({
     success: true,
@@ -832,5 +823,5 @@ module.exports = {
   deleteListing,
   getHostListings,
   toggleListingActive,
-  getListingForUser
+  getListingForUser,
 };
