@@ -1,24 +1,24 @@
-
 // src/controllers/bookingController.js
 
-const { prisma } = require('../config/database');
-const { redisHelpers } = require('../config/redis');
-const { asyncHandler } = require('../middleware/errorHandler');
+const { prisma } = require("../config/database");
+const { redisHelpers } = require("../config/redis");
+const { asyncHandler } = require("../middleware/errorHandler");
 
 const {
   paginate,
   paginationMeta,
   calculateBookingPrice,
   datesOverlap,
-} = require('../utils/helpers');
+} = require("../utils/helpers");
 
-const emailService = require('../services/emailService');
+const emailService = require("../services/emailService");
 
 // @desc    Create booking
 // @route   POST /api/v1/bookings
 // @access  Private
 const createBooking = asyncHandler(async (req, res) => {
   const { listing_id, check_in, check_out, guests = 1 } = req.body;
+  
 
   // Find listing
   const listing = await prisma.listing.findUnique({
@@ -35,7 +35,7 @@ const createBooking = asyncHandler(async (req, res) => {
       bookings: {
         where: {
           status: {
-            in: ['pending', 'confirmed', 'checked_in'],
+            in: ["pending", "confirmed", "checked_in"],
           },
         },
         select: {
@@ -50,15 +50,15 @@ const createBooking = asyncHandler(async (req, res) => {
   if (!listing) {
     return res.status(404).json({
       success: false,
-      message: 'Listing not found',
+      message: "Listing not found",
     });
   }
 
   // Check listing availability
-  if (!listing.is_active || listing.status !== 'active') {
+  if (!listing.is_active || listing.status !== "active") {
     return res.status(400).json({
       success: false,
-      message: 'Listing is not available',
+      message: "Listing is not available",
     });
   }
 
@@ -66,7 +66,7 @@ const createBooking = asyncHandler(async (req, res) => {
   if (listing.host_id === req.user.id) {
     return res.status(400).json({
       success: false,
-      message: 'You cannot book your own listing',
+      message: "You cannot book your own listing",
     });
   }
 
@@ -74,10 +74,13 @@ const createBooking = asyncHandler(async (req, res) => {
   const checkInDate = new Date(check_in);
   const checkOutDate = new Date(check_out);
 
-  if (Number.isNaN(checkInDate.getTime()) || Number.isNaN(checkOutDate.getTime())) {
+  if (
+    Number.isNaN(checkInDate.getTime()) ||
+    Number.isNaN(checkOutDate.getTime())
+  ) {
     return res.status(400).json({
       success: false,
-      message: 'Invalid check-in or check-out date',
+      message: "Invalid check-in or check-out date",
     });
   }
 
@@ -87,16 +90,24 @@ const createBooking = asyncHandler(async (req, res) => {
   if (checkInDate < today) {
     return res.status(400).json({
       success: false,
-      message: 'Check-in date must be today or future',
+      message: "Check-in date must be today or future",
     });
   }
 
   if (checkOutDate <= checkInDate) {
     return res.status(400).json({
       success: false,
-      message: 'Check-out must be after check-in',
+      message: "Check-out must be after check-in",
     });
   }
+
+  console.log("========== BOOKING DEBUG ==========");
+console.log("Listing:", listing.id);
+console.log("Requested check-in:", checkInDate);
+console.log("Requested check-out:", checkOutDate);
+console.log("Existing bookings:", listing.bookings);
+console.log("Blocked dates:", listing.blocked_dates);
+console.log("==================================");
 
   // Check existing bookings
   const isAvailable = listing.bookings.every((booking) => {
@@ -104,33 +115,41 @@ const createBooking = asyncHandler(async (req, res) => {
       checkInDate,
       checkOutDate,
       new Date(booking.check_in),
-      new Date(booking.check_out)
+      new Date(booking.check_out),
     );
   });
 
   if (!isAvailable) {
     return res.status(400).json({
       success: false,
-      message: 'Selected dates are not available',
+      message: "Selected dates are not available",
     });
   }
 
   // Check blocked dates
-  const blockedDates = listing.blocked_dates || [];
+  const blockedDates = Array.isArray(listing.blocked_dates)
+    ? listing.blocked_dates
+    : [];
 
   const isBlocked = blockedDates.some((block) => {
+    const blockStart = block.startDate || block.start;
+    const blockEnd = block.endDate || block.end;
+
+    if (!blockStart || !blockEnd) {
+      return false;
+    }
+
     return datesOverlap(
       checkInDate,
       checkOutDate,
-      new Date(block.start),
-      new Date(block.end)
+      new Date(blockStart),
+      new Date(blockEnd),
     );
   });
-
   if (isBlocked) {
     return res.status(400).json({
       success: false,
-      message: 'Selected dates are blocked by the host',
+      message: "Selected dates are blocked by the host",
     });
   }
 
@@ -141,7 +160,7 @@ const createBooking = asyncHandler(async (req, res) => {
     parseFloat(listing.price),
     checkInDate,
     checkOutDate,
-    guests
+    guests,
   );
 
   // Create booking
@@ -153,7 +172,7 @@ const createBooking = asyncHandler(async (req, res) => {
       check_out: checkOutDate,
       total_price: totalPrice,
       guests,
-      status: 'pending',
+      status: "pending",
     },
 
     include: {
@@ -193,34 +212,27 @@ const createBooking = asyncHandler(async (req, res) => {
         checkOut: checkOutDate,
         guests,
         totalPrice,
-      }
+      },
     );
   } catch (error) {
-    console.error(
-      'Failed to send booking confirmation email:',
-      error
-    );
+    console.error("Failed to send booking confirmation email:", error);
   }
 
   // Clear booking cache
-  await redisHelpers.deletePattern('bookings:*');
+  await redisHelpers.deletePattern("bookings:*");
 
   return res.status(201).json({
     success: true,
-    message: 'Booking created successfully',
+    message: "Booking created successfully",
     data: booking,
   });
 });
-
 
 // @desc    Get all bookings for current user
 // @route   GET /api/v1/bookings/my-booking
 // @access  Private
 const getMyBookings = asyncHandler(async (req, res) => {
-  const { page, limit } = paginate(
-    req.query.page,
-    req.query.limit
-  );
+  const { page, limit } = paginate(req.query.page, req.query.limit);
 
   const { status, upcoming } = req.query;
 
@@ -228,7 +240,7 @@ const getMyBookings = asyncHandler(async (req, res) => {
   if (!req.user || !req.user.id) {
     return res.status(401).json({
       success: false,
-      message: 'User not authenticated',
+      message: "User not authenticated",
     });
   }
 
@@ -239,18 +251,18 @@ const getMyBookings = asyncHandler(async (req, res) => {
   // Status filter
   if (status) {
     const validStatuses = [
-      'pending',
-      'confirmed',
-      'checked_in',
-      'checked_out',
-      'cancelled',
-      'no_show',
+      "pending",
+      "confirmed",
+      "checked_in",
+      "checked_out",
+      "cancelled",
+      "no_show",
     ];
 
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid status parameter',
+        message: "Invalid status parameter",
       });
     }
 
@@ -258,13 +270,13 @@ const getMyBookings = asyncHandler(async (req, res) => {
   }
 
   // Upcoming bookings
-  if (upcoming === 'true') {
+  if (upcoming === "true") {
     where.check_in = {
       gte: new Date(),
     };
 
     where.status = {
-      in: ['confirmed', 'pending'],
+      in: ["confirmed", "pending"],
     };
   }
 
@@ -288,7 +300,7 @@ const getMyBookings = asyncHandler(async (req, res) => {
       prisma.booking.findMany({
         where,
         orderBy: {
-          created_at: 'desc',
+          created_at: "desc",
         },
         skip: paginate.skip,
         take: paginate.take,
@@ -323,11 +335,7 @@ const getMyBookings = asyncHandler(async (req, res) => {
       }),
     ]);
 
-    const meta = paginationMeta(
-      total,
-      paginate.page,
-      paginate.limit
-    );
+    const meta = paginationMeta(total, paginate.page, paginate.limit);
 
     const result = {
       data: bookings,
@@ -335,21 +343,14 @@ const getMyBookings = asyncHandler(async (req, res) => {
     };
 
     // Cache for 5 minutes
-    await redisHelpers.set(
-      cacheKey,
-      result,
-      300
-    );
+    await redisHelpers.set(cacheKey, result, 300);
 
     return res.status(200).json({
       success: true,
       ...result,
     });
   } catch (error) {
-    console.error(
-      'Error fetching bookings:',
-      error
-    );
+    console.error("Error fetching bookings:", error);
 
     return res.status(200).json({
       success: true,
@@ -364,15 +365,11 @@ const getMyBookings = asyncHandler(async (req, res) => {
   }
 });
 
-
 // @desc    Get bookings for host's listings
 // @route   GET /api/v1/bookings/host
 // @access  Private (Host only)
 const getHostBookings = asyncHandler(async (req, res) => {
-  const { page, limit } = paginate(
-    req.query.page,
-    req.query.limit
-  );
+  const { page, limit } = paginate(req.query.page, req.query.limit);
 
   const { status, listing_id } = req.query;
 
@@ -395,7 +392,7 @@ const getHostBookings = asyncHandler(async (req, res) => {
       where,
 
       orderBy: {
-        created_at: 'desc',
+        created_at: "desc",
       },
 
       skip: paginate.skip,
@@ -427,11 +424,7 @@ const getHostBookings = asyncHandler(async (req, res) => {
     }),
   ]);
 
-  const meta = paginationMeta(
-    total,
-    paginate.page,
-    paginate.limit
-  );
+  const meta = paginationMeta(total, paginate.page, paginate.limit);
 
   return res.status(200).json({
     success: true,
@@ -439,7 +432,6 @@ const getHostBookings = asyncHandler(async (req, res) => {
     meta,
   });
 });
-
 
 // @desc    Get single booking
 // @route   GET /api/v1/bookings/:id
@@ -479,7 +471,7 @@ const getBookingById = asyncHandler(async (req, res) => {
   if (!booking) {
     return res.status(404).json({
       success: false,
-      message: 'Booking not found',
+      message: "Booking not found",
     });
   }
 
@@ -487,13 +479,13 @@ const getBookingById = asyncHandler(async (req, res) => {
   const isAuthorized =
     booking.user_id === req.user.id ||
     booking.listing.host_id === req.user.id ||
-    req.user.role === 'admin' ||
-    req.user.role === 'super_admin';
+    req.user.role === "admin" ||
+    req.user.role === "super_admin";
 
   if (!isAuthorized) {
     return res.status(403).json({
       success: false,
-      message: 'Not authorized to view this booking',
+      message: "Not authorized to view this booking",
     });
   }
 
@@ -502,7 +494,6 @@ const getBookingById = asyncHandler(async (req, res) => {
     data: booking,
   });
 });
-
 
 // @desc    Update booking status
 // @route   PUT /api/v1/bookings/:id/status
@@ -535,26 +526,22 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
   if (!booking) {
     return res.status(404).json({
       success: false,
-      message: 'Booking not found',
+      message: "Booking not found",
     });
   }
 
   // Authorization
-  const isHost =
-    booking.listing.host_id === req.user.id;
+  const isHost = booking.listing.host_id === req.user.id;
 
-  const isUser =
-    booking.user_id === req.user.id;
+  const isUser = booking.user_id === req.user.id;
 
-  const isAdmin =
-    req.user.role === 'admin' ||
-    req.user.role === 'super_admin';
+  const isAdmin = req.user.role === "admin" || req.user.role === "super_admin";
 
   // Allowed status transitions
   const validTransitions = {
-    pending: ['confirmed', 'cancelled'],
-    confirmed: ['checked_in', 'cancelled'],
-    checked_in: ['checked_out', 'cancelled'],
+    pending: ["confirmed", "cancelled"],
+    confirmed: ["checked_in", "cancelled"],
+    checked_in: ["checked_out", "cancelled"],
     checked_out: [],
     cancelled: [],
     no_show: [],
@@ -570,10 +557,8 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
   // Check permissions
   let canUpdate = false;
 
-  if (status === 'cancelled' && isUser) {
-    canUpdate = ['pending', 'confirmed'].includes(
-      booking.status
-    );
+  if (status === "cancelled" && isUser) {
+    canUpdate = ["pending", "confirmed"].includes(booking.status);
   } else if (isHost || isAdmin) {
     canUpdate = true;
   }
@@ -581,18 +566,18 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
   if (!canUpdate) {
     return res.status(403).json({
       success: false,
-      message: 'Not authorized to update this booking status',
+      message: "Not authorized to update this booking status",
     });
   }
 
   // Check-in validation
-  if (status === 'checked_in') {
+  if (status === "checked_in") {
     const now = new Date();
 
     if (new Date(booking.check_in) > now) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot check in before check-in date',
+        message: "Cannot check in before check-in date",
       });
     }
   }
@@ -602,21 +587,21 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
     status,
   };
 
-  if (status === 'checked_in') {
+  if (status === "checked_in") {
     updateData.checked_in_at = new Date();
   }
 
-  if (status === 'checked_out') {
+  if (status === "checked_out") {
     updateData.checked_out_at = new Date();
   }
 
   // Log cancellation
-  if (status === 'cancelled' && reason) {
+  if (status === "cancelled" && reason) {
     await prisma.userEvent.create({
       data: {
         user_id: booking.user_id,
 
-        event_type: 'booking_cancelled',
+        event_type: "booking_cancelled",
 
         metadata: {
           booking_id: booking.id,
@@ -658,7 +643,7 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
 
   // Send confirmation email
   try {
-    if (status === 'confirmed') {
+    if (status === "confirmed") {
       await emailService.sendBookingConfirmationEmail(
         booking.user.email,
         booking.user.name,
@@ -669,19 +654,16 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
           checkOut: booking.check_out,
           guests: booking.guests,
           totalPrice: booking.total_price,
-        }
+        },
       );
     }
   } catch (error) {
-    console.error(
-      'Failed to send booking status email:',
-      error
-    );
+    console.error("Failed to send booking status email:", error);
   }
 
   // Clear cache
   await redisHelpers.del(`booking:${id}`);
-  await redisHelpers.deletePattern('bookings:*');
+  await redisHelpers.deletePattern("bookings:*");
 
   return res.status(200).json({
     success: true,
@@ -689,7 +671,6 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
     data: updatedBooking,
   });
 });
-
 
 // @desc    Cancel booking
 // @route   POST /api/v1/bookings/:id/cancel
@@ -714,33 +695,26 @@ const cancelBooking = asyncHandler(async (req, res) => {
   if (!booking) {
     return res.status(404).json({
       success: false,
-      message: 'Booking not found',
+      message: "Booking not found",
     });
   }
 
   // Authorization
-  const isUser =
-    booking.user_id === req.user.id;
+  const isUser = booking.user_id === req.user.id;
 
-  const isHost =
-    booking.listing.host_id === req.user.id;
+  const isHost = booking.listing.host_id === req.user.id;
 
-  const isAdmin =
-    req.user.role === 'admin' ||
-    req.user.role === 'super_admin';
+  const isAdmin = req.user.role === "admin" || req.user.role === "super_admin";
 
   if (!isUser && !isHost && !isAdmin) {
     return res.status(403).json({
       success: false,
-      message: 'Not authorized to cancel this booking',
+      message: "Not authorized to cancel this booking",
     });
   }
 
   // Only pending and confirmed bookings can be cancelled
-  const cancellableStatuses = [
-    'pending',
-    'confirmed',
-  ];
+  const cancellableStatuses = ["pending", "confirmed"];
 
   if (!cancellableStatuses.includes(booking.status)) {
     return res.status(400).json({
@@ -754,7 +728,7 @@ const cancelBooking = asyncHandler(async (req, res) => {
     where: { id },
 
     data: {
-      status: 'cancelled',
+      status: "cancelled",
     },
   });
 
@@ -763,11 +737,11 @@ const cancelBooking = asyncHandler(async (req, res) => {
     data: {
       user_id: booking.user_id,
 
-      event_type: 'booking_cancelled',
+      event_type: "booking_cancelled",
 
       metadata: {
         booking_id: booking.id,
-        reason: reason || 'Booking cancelled',
+        reason: reason || "Booking cancelled",
         cancelled_by: req.user.id,
       },
     },
@@ -775,31 +749,25 @@ const cancelBooking = asyncHandler(async (req, res) => {
 
   // Clear cache
   await redisHelpers.del(`booking:${id}`);
-  await redisHelpers.deletePattern('bookings:*');
+  await redisHelpers.deletePattern("bookings:*");
 
   return res.status(200).json({
     success: true,
-    message: 'Booking cancelled successfully',
+    message: "Booking cancelled successfully",
     data: updatedBooking,
   });
 });
-
 
 // @desc    Check booking availability
 // @route   POST /api/v1/bookings/check-availability
 // @access  Public
 const checkAvailability = asyncHandler(async (req, res) => {
-  const {
-    listing_id,
-    check_in,
-    check_out,
-  } = req.body;
+  const { listing_id, check_in, check_out } = req.body;
 
   if (!listing_id || !check_in || !check_out) {
     return res.status(400).json({
       success: false,
-      message:
-        'Listing ID, check-in and check-out dates are required',
+      message: "Listing ID, check-in and check-out dates are required",
     });
   }
 
@@ -810,7 +778,7 @@ const checkAvailability = asyncHandler(async (req, res) => {
       bookings: {
         where: {
           status: {
-            in: ['pending', 'confirmed', 'checked_in'],
+            in: ["pending", "confirmed", "checked_in"],
           },
         },
 
@@ -826,7 +794,7 @@ const checkAvailability = asyncHandler(async (req, res) => {
   if (!listing) {
     return res.status(404).json({
       success: false,
-      message: 'Listing not found',
+      message: "Listing not found",
     });
   }
 
@@ -839,42 +807,37 @@ const checkAvailability = asyncHandler(async (req, res) => {
   ) {
     return res.status(400).json({
       success: false,
-      message: 'Invalid check-in or check-out date',
+      message: "Invalid check-in or check-out date",
     });
   }
 
   // Check booking conflicts
-  const isAvailable = listing.bookings.every(
-    (booking) => {
-      return !datesOverlap(
-        checkInDate,
-        checkOutDate,
-        new Date(booking.check_in),
-        new Date(booking.check_out)
-      );
-    }
-  );
+  const isAvailable = listing.bookings.every((booking) => {
+    return !datesOverlap(
+      checkInDate,
+      checkOutDate,
+      new Date(booking.check_in),
+      new Date(booking.check_out),
+    );
+  });
 
   // Check blocked dates
-  const blockedDates =
-    listing.blocked_dates || [];
+  const blockedDates = listing.blocked_dates || [];
 
-  const isBlocked = blockedDates.some(
-    (block) => {
-      return datesOverlap(
-        checkInDate,
-        checkOutDate,
-        new Date(block.start),
-        new Date(block.end)
-      );
-    }
-  );
+  const isBlocked = blockedDates.some((block) => {
+    return datesOverlap(
+      checkInDate,
+      checkOutDate,
+      new Date(block.start),
+      new Date(block.end),
+    );
+  });
 
   const available =
     isAvailable &&
     !isBlocked &&
     listing.is_active &&
-    listing.status === 'active';
+    listing.status === "active";
 
   // Calculate booking value
   let totalPrice = null;
@@ -884,7 +847,7 @@ const checkAvailability = asyncHandler(async (req, res) => {
       parseFloat(listing.price),
       checkInDate,
       checkOutDate,
-      req.body.guests || 1
+      req.body.guests || 1,
     );
   }
 
@@ -902,7 +865,6 @@ const checkAvailability = asyncHandler(async (req, res) => {
     },
   });
 });
-
 
 // @desc    Get booking stats for host
 // @route   GET /api/v1/bookings/stats/host
@@ -937,7 +899,7 @@ const getHostStats = asyncHandler(async (req, res) => {
         },
 
         status: {
-          in: ['confirmed', 'pending'],
+          in: ["confirmed", "pending"],
         },
       },
     }),
@@ -949,7 +911,7 @@ const getHostStats = asyncHandler(async (req, res) => {
           host_id: hostId,
         },
 
-        status: 'checked_out',
+        status: "checked_out",
       },
     }),
 
@@ -962,11 +924,7 @@ const getHostStats = asyncHandler(async (req, res) => {
         },
 
         status: {
-          in: [
-            'confirmed',
-            'checked_in',
-            'checked_out',
-          ],
+          in: ["confirmed", "checked_in", "checked_out"],
         },
       },
 
@@ -979,12 +937,9 @@ const getHostStats = asyncHandler(async (req, res) => {
   // Booking value for the last 6 months
   const sixMonthsAgo = new Date();
 
-  sixMonthsAgo.setMonth(
-    sixMonthsAgo.getMonth() - 6
-  );
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-  const monthlyBookingValue =
-    await prisma.$queryRaw`
+  const monthlyBookingValue = await prisma.$queryRaw`
       SELECT
         DATE_TRUNC('month', created_at) AS month,
         SUM(total_price) AS booking_value
@@ -1014,15 +969,12 @@ const getHostStats = asyncHandler(async (req, res) => {
 
       // Booking value only.
       // The application does not process payments.
-      total_booking_value:
-        totalBookingValue._sum.total_price || 0,
+      total_booking_value: totalBookingValue._sum.total_price || 0,
 
-      monthly_booking_value:
-        monthlyBookingValue,
+      monthly_booking_value: monthlyBookingValue,
     },
   });
 });
-
 
 module.exports = {
   createBooking,
@@ -1034,4 +986,3 @@ module.exports = {
   checkAvailability,
   getHostStats,
 };
-
