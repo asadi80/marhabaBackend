@@ -245,7 +245,9 @@ const bookingValidators = {
       .custom((value) => {
         const date = new Date(value);
         const today = new Date();
+
         today.setHours(0, 0, 0, 0);
+
         return date >= today;
       })
       .withMessage("Check-in must be today or future"),
@@ -258,6 +260,7 @@ const bookingValidators = {
       .custom((value, { req }) => {
         const checkOut = new Date(value);
         const checkIn = new Date(req.body.check_in);
+
         return checkOut > checkIn;
       })
       .withMessage("Check-out must be after check-in"),
@@ -272,7 +275,13 @@ const bookingValidators = {
     body("status")
       .notEmpty()
       .withMessage("Status is required")
-      .isIn(["confirmed", "cancelled"])
+      .isIn([
+        "confirmed",
+        "cancelled",
+        "checked_in",
+        "checked_out",
+        "no_show",
+      ])
       .withMessage("Invalid status"),
   ],
 };
