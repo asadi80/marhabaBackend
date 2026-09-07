@@ -498,10 +498,14 @@ const getBookingById = asyncHandler(async (req, res) => {
 // @desc    Update booking status
 // @route   PUT /api/v1/bookings/:id/status
 // @access  Private
+// @desc    Update booking status
+// @route   PUT /api/v1/bookings/:id/status
+// @access  Private
 const updateBookingStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status, reason } = req.body;
 
+  // Find booking
   const booking = await prisma.booking.findUnique({
     where: { id },
 
@@ -530,14 +534,21 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
     });
   }
 
+  // -----------------------------------------
   // Authorization
-  const isHost = booking.listing.host_id === req.user.id;
+  // -----------------------------------------
 
+  const isHost = booking.listing.host_id === req.user.id;
   const isUser = booking.user_id === req.user.id;
 
-  const isAdmin = req.user.role === "admin" || req.user.role === "super_admin";
+  const isAdmin =
+    req.user.role === "admin" ||
+    req.user.role === "super_admin";
 
+  // -----------------------------------------
   // Allowed status transitions
+  // -----------------------------------------
+
   const validTransitions = {
     pending: ["confirmed", "cancelled"],
     confirmed: ["checked_in", "cancelled"],
@@ -554,12 +565,21 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
     });
   }
 
+  // -----------------------------------------
   // Check permissions
+  // -----------------------------------------
+
   let canUpdate = false;
 
+  // User can cancel their own pending/confirmed booking
   if (status === "cancelled" && isUser) {
-    canUpdate = ["pending", "confirmed"].includes(booking.status);
-  } else if (isHost || isAdmin) {
+    canUpdate = ["pending", "confirmed"].includes(
+      booking.status
+    );
+  }
+
+  // Host or admin can change booking status
+  else if (isHost || isAdmin) {
     canUpdate = true;
   }
 
@@ -570,11 +590,15 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
     });
   }
 
+  // -----------------------------------------
   // Check-in validation
+  // -----------------------------------------
+
   if (status === "checked_in") {
     const now = new Date();
+    const checkInDate = new Date(booking.check_in);
 
-    if (new Date(booking.check_in) > now) {
+    if (checkInDate > now) {
       return res.status(400).json({
         success: false,
         message: "Cannot check in before check-in date",
@@ -582,7 +606,10 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
     }
   }
 
+  // -----------------------------------------
   // Prepare update
+  // -----------------------------------------
+
   const updateData = {
     status,
   };
@@ -595,8 +622,11 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
     updateData.checked_out_at = new Date();
   }
 
+  // -----------------------------------------
   // Log cancellation
-  if (status === "cancelled" && reason) {
+  // -----------------------------------------
+
+  if (status === "cancelled") {
     await prisma.userEvent.create({
       data: {
         user_id: booking.user_id,
@@ -605,14 +635,17 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
 
         metadata: {
           booking_id: booking.id,
-          reason,
+          reason: reason || "Booking cancelled",
           cancelled_by: req.user.id,
         },
       },
     });
   }
 
+  // -----------------------------------------
   // Update booking
+  // -----------------------------------------
+
   const updatedBooking = await prisma.booking.update({
     where: { id },
 
@@ -641,12 +674,60 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
     },
   });
 
-  // Send confirmation email
- // Send confirmation email
-try { await emailService.sendBookingStatusEmail( booking.user.email, booking.user.name, { id: booking.id, listingTitle: booking.listing.title, checkIn: booking.check_in, checkOut: booking.check_out, guests: booking.guests, totalPrice: booking.total_price, }, status, reason || null, ); console.log( `📧 Booking status email sent to ${booking.user.email} - ${status}`, ); } catch (error) { // Email failure should NOT fail the booking status update console.error( "❌ Failed to send booking status email:", error, ); }
+  // -----------------------------------------
+  // Send email to guest
+  // -----------------------------------------
+
+  if (booking.user.email) {
+    try {
+      const emailResult =
+        await emailService.sendBookingStatusEmail(
+          booking.user.email,
+          booking.user.name,
+          {
+            id: booking.id,
+            listingTitle: booking.listing.title,
+            checkIn: booking.check_in,
+            checkOut: booking.check_out,
+            guests: booking.guests,
+          },
+          status,
+          reason || null
+        );
+
+      if (emailResult?.success) {
+        console.log(
+          `📧 Booking status email sent: ${booking.user.email} (${status})`
+        );
+      } else {
+        console.error(
+          `❌ Booking status email failed:`,
+          emailResult?.error
+        );
+      }
+    } catch (error) {
+      // Email errors must NOT break booking status update
+      console.error(
+        "❌ Failed to send booking status email:",
+        error
+      );
+    }
+  } else {
+    console.log(
+      `⚠️ No email address for booking user ${booking.user_id}`
+    );
+  }
+
+  // -----------------------------------------
   // Clear cache
+  // -----------------------------------------
+
   await redisHelpers.del(`booking:${id}`);
   await redisHelpers.deletePattern("bookings:*");
+
+  // -----------------------------------------
+  // Response
+  // -----------------------------------------
 
   return res.status(200).json({
     success: true,
