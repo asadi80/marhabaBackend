@@ -665,6 +665,68 @@ const getHostListings = asyncHandler(async (req, res) => {
 // @desc    Toggle listing active status
 // @route   PATCH /api/v1/listings/:id/toggle-active
 // @access  Private (Host only)
+const toggleListingActive = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  // Check if listing exists and belongs to logged-in host
+  const listing = await prisma.listing.findFirst({
+    where: {
+      id,
+      host_id: req.user.id,
+    },
+    select: {
+      id: true,
+      is_active: true,
+      status: true,
+    },
+  });
+
+  if (!listing) {
+    return res.status(404).json({
+      success: false,
+      message: "Listing not found or you are not the owner",
+      code: "LISTING_NOT_FOUND",
+    });
+  }
+
+  // Toggle active status
+  const newIsActive = !listing.is_active;
+
+  // Keep status consistent with is_active
+  const newStatus = newIsActive ? "active" : "inactive";
+
+  const updatedListing = await prisma.listing.update({
+    where: {
+      id,
+    },
+    data: {
+      is_active: newIsActive,
+      status: newStatus,
+      updated_at: new Date(),
+    },
+    select: {
+      id: true,
+      is_active: true,
+      status: true,
+      updated_at: true,
+    },
+  });
+
+  // Clear listing caches
+  await redisHelpers.del(`listing:${id}`);
+  await redisHelpers.deletePattern("listings:*");
+
+  // Return response
+  return res.status(200).json({
+    success: true,
+    message: newIsActive
+      ? "Listing activated successfully"
+      : "Listing deactivated successfully",
+    data: updatedListing,
+  });
+});
+
+
 const getListingForUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -770,5 +832,5 @@ module.exports = {
   deleteListing,
   getHostListings,
   toggleListingActive,
-  getListingForUser,
+  getListingForUser
 };
