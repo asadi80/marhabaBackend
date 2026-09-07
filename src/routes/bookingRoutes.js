@@ -93,6 +93,7 @@ router.post(
 // GET /api/v1/bookings/:id
 router.get(
   "/:id",
+  isHost,
   commonValidators.id(),
   handleValidationErrors,
   bookingController.getBookingById
@@ -105,6 +106,7 @@ router.get(
 // PUT /api/v1/bookings/:id/status
 router.put(
   "/:id/status",
+  isHost,
   commonValidators.id(),
   bookingValidators.status,
   handleValidationErrors,
