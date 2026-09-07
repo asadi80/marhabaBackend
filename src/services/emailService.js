@@ -1688,6 +1688,322 @@ ${appUrl}/host-dashboard
       html: emailHtml,
     });
   }
+
+
+
+  /**
+   * Send booking status change email to the guest
+   */
+  async sendBookingStatusEmail(email, name, booking, newStatus, reason = null) {
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
+
+    const statusInfo = {
+      confirmed: {
+        icon: "✅",
+        color: "#27500A",
+        background: "#EAF3DE",
+        title: "Booking Confirmed",
+        arabicTitle: "تم تأكيد الحجز",
+        message: "Your booking has been confirmed by the host.",
+        arabicMessage: "تم تأكيد حجزك من قبل المضيف.",
+      },
+
+      cancelled: {
+        icon: "❌",
+        color: "#E24B4A",
+        background: "#FCEBEB",
+        title: "Booking Cancelled",
+        arabicTitle: "تم إلغاء الحجز",
+        message: "Your booking has been cancelled.",
+        arabicMessage: "تم إلغاء حجزك.",
+      },
+
+      checked_in: {
+        icon: "🏠",
+        color: "#27500A",
+        background: "#EAF3DE",
+        title: "Check-in Confirmed",
+        arabicTitle: "تم تسجيل الوصول",
+        message: "Your check-in has been confirmed.",
+        arabicMessage: "تم تأكيد تسجيل وصولك.",
+      },
+
+      checked_out: {
+        icon: "👋",
+        color: "#4F46E5",
+        background: "#EEF2FF",
+        title: "Check-out Completed",
+        arabicTitle: "تم تسجيل المغادرة",
+        message: "Your check-out has been completed successfully.",
+        arabicMessage: "تم تسجيل مغادرتك بنجاح.",
+      },
+
+      no_show: {
+        icon: "⚠️",
+        color: "#F59E0B",
+        background: "#FEF3C7",
+        title: "Booking Marked as No-Show",
+        arabicTitle: "تم تسجيل عدم الحضور",
+        message: "Your booking has been marked as a no-show.",
+        arabicMessage: "تم تسجيل الحجز كحالة عدم حضور.",
+      },
+    };
+
+    const info = statusInfo[newStatus] || {
+      icon: "📋",
+      color: "#4F46E5",
+      background: "#EEF2FF",
+      title: "Booking Status Updated",
+      arabicTitle: "تم تحديث حالة الحجز",
+      message: `Your booking status has been changed to ${newStatus}.`,
+      arabicMessage: `تم تغيير حالة حجزك إلى ${newStatus}.`,
+    };
+
+    const checkIn = this.formatDateForEmail(booking.checkIn);
+    const checkOut = this.formatDateForEmail(booking.checkOut);
+
+    const reasonHtml = reason
+      ? `
+        <div style="
+          background: #FCEBEB;
+          padding: 20px;
+          border-radius: 12px;
+          margin: 20px 0;
+          border: 1px solid #E24B4A;
+        ">
+          <h3 style="color: #E24B4A; margin-top: 0;">
+            📋 Cancellation Reason
+          </h3>
+
+          <p>${reason}</p>
+        </div>
+      `
+      : "";
+
+    const reasonArabicHtml = reason
+      ? `
+        <div style="
+          background: #FCEBEB;
+          padding: 20px;
+          border-radius: 12px;
+          margin: 20px 0;
+          border: 1px solid #E24B4A;
+        ">
+          <h3 style="color: #E24B4A; margin-top: 0;">
+            📋 سبب الإلغاء
+          </h3>
+
+          <p>${reason}</p>
+        </div>
+      `
+      : "";
+
+    const emailHtml = `
+<div style="
+  font-family: Arial, 'Cairo', 'Tajawal', sans-serif;
+  max-width: 600px;
+  margin: auto;
+  padding: 20px;
+  background: #f7f6f2;
+">
+
+  <!-- Logo -->
+  <div style="
+    text-align: center;
+    margin-bottom: 25px;
+  ">
+    <h1 style="color: #1a1a2e;">
+      مر<span style="color: #e8c547;">حبا</span>
+    </h1>
+  </div>
+
+  <!-- English -->
+  <div style="margin-bottom: 30px;">
+
+    <h2 style="color: ${info.color};">
+      ${info.icon} ${info.title}
+    </h2>
+
+    <p>Dear ${name},</p>
+
+    <p>
+      ${info.message}
+    </p>
+
+    <div style="
+      background: ${info.background};
+      padding: 20px;
+      border-radius: 12px;
+      margin: 20px 0;
+    ">
+
+      <h3 style="margin-top: 0;">
+        📋 Booking Details
+      </h3>
+
+      <p>
+        <strong>Property:</strong>
+        ${booking.listingTitle}
+      </p>
+
+      <p>
+        <strong>Check-in:</strong>
+        ${checkIn}
+      </p>
+
+      <p>
+        <strong>Check-out:</strong>
+        ${checkOut}
+      </p>
+
+      <p>
+        <strong>Guests:</strong>
+        ${booking.guests}
+      </p>
+
+      <p>
+        <strong>Status:</strong>
+        <span style="color: ${info.color};">
+          ${newStatus.replace("_", " ").toUpperCase()}
+        </span>
+      </p>
+
+    </div>
+
+    ${reasonHtml}
+
+    <p>
+      If you have any questions, please contact the Marhaba support team.
+    </p>
+
+    <p>
+      Best regards,<br>
+      Marhaba Team
+    </p>
+
+  </div>
+
+  <div style="
+    border-top: 2px solid #e5e7eb;
+    margin: 25px 0;
+  "></div>
+
+  <!-- Arabic -->
+  <div style="
+    direction: rtl;
+    text-align: right;
+  ">
+
+    <h2 style="color: ${info.color};">
+      ${info.icon} ${info.arabicTitle}
+    </h2>
+
+    <p>عزيزي ${name}،</p>
+
+    <p>
+      ${info.arabicMessage}
+    </p>
+
+    <div style="
+      background: ${info.background};
+      padding: 20px;
+      border-radius: 12px;
+      margin: 20px 0;
+    ">
+
+      <h3 style="margin-top: 0;">
+        📋 تفاصيل الحجز
+      </h3>
+
+      <p>
+        <strong>العقار:</strong>
+        ${booking.listingTitle}
+      </p>
+
+      <p>
+        <strong>تاريخ الوصول:</strong>
+        ${checkIn}
+      </p>
+
+      <p>
+        <strong>تاريخ المغادرة:</strong>
+        ${checkOut}
+      </p>
+
+      <p>
+        <strong>عدد الضيوف:</strong>
+        ${booking.guests}
+      </p>
+
+      <p>
+        <strong>الحالة:</strong>
+        <span style="color: ${info.color};">
+          ${newStatus.replace("_", " ")}
+        </span>
+      </p>
+
+    </div>
+
+    ${reasonArabicHtml}
+
+    <p>
+      إذا كانت لديك أي أسئلة، يرجى التواصل مع فريق دعم مرحبا.
+    </p>
+
+    <p>
+      مع أطيب التحيات،<br>
+      فريق مرحبا
+    </p>
+
+  </div>
+
+</div>
+`;
+
+    const text = `
+Dear ${name},
+
+${info.message}
+
+Booking Details:
+Property: ${booking.listingTitle}
+Check-in: ${checkIn}
+Check-out: ${checkOut}
+Guests: ${booking.guests}
+Status: ${newStatus.replace("_", " ")}
+${reason ? `Reason: ${reason}` : ""}
+
+Best regards,
+Marhaba Team
+
+
+---
+
+عزيزي ${name}،
+
+${info.arabicMessage}
+
+تفاصيل الحجز:
+العقار: ${booking.listingTitle}
+تاريخ الوصول: ${checkIn}
+تاريخ المغادرة: ${checkOut}
+عدد الضيوف: ${booking.guests}
+الحالة: ${newStatus.replace("_", " ")}
+${reason ? `السبب: ${reason}` : ""}
+
+مع أطيب التحيات،
+فريق مرحبا
+`;
+
+    return this.sendEmail({
+      to: email,
+      subject: `${info.icon} ${info.title} / ${info.arabicTitle} - Marhaba`,
+      text,
+      html: emailHtml,
+    });
+  }
+
+
 }
 
 module.exports = new EmailService();

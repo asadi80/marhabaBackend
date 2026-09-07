@@ -642,25 +642,8 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
   });
 
   // Send confirmation email
-  try {
-    if (status === "confirmed") {
-      await emailService.sendBookingConfirmationEmail(
-        booking.user.email,
-        booking.user.name,
-        {
-          id: booking.id,
-          listingTitle: booking.listing.title,
-          checkIn: booking.check_in,
-          checkOut: booking.check_out,
-          guests: booking.guests,
-          totalPrice: booking.total_price,
-        },
-      );
-    }
-  } catch (error) {
-    console.error("Failed to send booking status email:", error);
-  }
-
+ // Send confirmation email
+try { await emailService.sendBookingStatusEmail( booking.user.email, booking.user.name, { id: booking.id, listingTitle: booking.listing.title, checkIn: booking.check_in, checkOut: booking.check_out, guests: booking.guests, totalPrice: booking.total_price, }, status, reason || null, ); console.log( `📧 Booking status email sent to ${booking.user.email} - ${status}`, ); } catch (error) { // Email failure should NOT fail the booking status update console.error( "❌ Failed to send booking status email:", error, ); }
   // Clear cache
   await redisHelpers.del(`booking:${id}`);
   await redisHelpers.deletePattern("bookings:*");
