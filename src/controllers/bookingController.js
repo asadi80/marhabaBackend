@@ -941,6 +941,7 @@ const getHostStats = asyncHandler(async (req, res) => {
     upcomingBookings,
     completedBookings,
     totalBookingValue,
+    hostListings,
   ] = await Promise.all([
     // Total bookings
     prisma.booking.count({
@@ -956,7 +957,6 @@ const getHostStats = asyncHandler(async (req, res) => {
       where: {
         listing: {
           host_id: hostId,
-          blocked_dates:blocked_dates
         },
 
         check_in: {
@@ -981,7 +981,6 @@ const getHostStats = asyncHandler(async (req, res) => {
     }),
 
     // Total booking value
-    // This is NOT payment revenue.
     prisma.booking.aggregate({
       where: {
         listing: {
@@ -997,6 +996,19 @@ const getHostStats = asyncHandler(async (req, res) => {
         total_price: true,
       },
     }),
+
+    // Get host listings including blocked dates
+    prisma.listing.findMany({
+      where: {
+        host_id: hostId,
+      },
+
+      select: {
+        id: true,
+        title: true,
+        blocked_dates: true,
+      },
+    }),
   ]);
 
   // Booking value for the last 6 months
@@ -1005,24 +1017,24 @@ const getHostStats = asyncHandler(async (req, res) => {
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
   const monthlyBookingValue = await prisma.$queryRaw`
-      SELECT
-        DATE_TRUNC('month', created_at) AS month,
-        SUM(total_price) AS booking_value
-      FROM bookings
-      WHERE listing_id IN (
-        SELECT id
-        FROM listings
-        WHERE host_id = ${hostId}
-      )
-      AND status IN (
-        'confirmed',
-        'checked_in',
-        'checked_out'
-      )
-      AND created_at >= ${sixMonthsAgo}
-      GROUP BY DATE_TRUNC('month', created_at)
-      ORDER BY month DESC
-    `;
+    SELECT
+      DATE_TRUNC('month', created_at) AS month,
+      SUM(total_price) AS booking_value
+    FROM bookings
+    WHERE listing_id IN (
+      SELECT id
+      FROM listings
+      WHERE host_id = ${hostId}
+    )
+    AND status IN (
+      'confirmed',
+      'checked_in',
+      'checked_out'
+    )
+    AND created_at >= ${sixMonthsAgo}
+    GROUP BY DATE_TRUNC('month', created_at)
+    ORDER BY month DESC
+  `;
 
   return res.status(200).json({
     success: true,
@@ -1032,11 +1044,13 @@ const getHostStats = asyncHandler(async (req, res) => {
       upcoming_bookings: upcomingBookings,
       completed_bookings: completedBookings,
 
-      // Booking value only.
-      // The application does not process payments.
-      total_booking_value: totalBookingValue._sum.total_price || 0,
+      total_booking_value:
+        totalBookingValue._sum.total_price || 0,
 
       monthly_booking_value: monthlyBookingValue,
+
+      // Blocked dates for each listing
+      listings: hostListings,
     },
   });
 });
