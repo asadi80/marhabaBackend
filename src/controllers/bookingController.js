@@ -956,6 +956,7 @@ const getHostStats = asyncHandler(async (req, res) => {
       where: {
         listing: {
           host_id: hostId,
+          blocked_dates:blocked_dates
         },
 
         check_in: {
