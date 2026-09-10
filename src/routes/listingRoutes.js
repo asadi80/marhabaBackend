@@ -54,6 +54,16 @@ router.put(
   listingController.updateListing,
 );
 
+router.patch(
+  "/:id/blocked-dates",
+  protect,
+  isHost,
+  commonValidators.id(),
+  listingValidators.update,
+  handleValidationErrors,
+  listingController.updateBlockedDates
+);
+
 router.delete(
   "/:id",
   protect,
