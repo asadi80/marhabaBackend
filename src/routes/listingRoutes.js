@@ -83,4 +83,11 @@ router.patch(
   listingController.toggleListingActive,
 );
 
+router.post(
+  "/:id/view",
+   commonValidators.id(),
+  handleValidationErrors,
+  listingController.incrementListingView
+);
+
 module.exports = router;

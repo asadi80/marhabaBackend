@@ -1027,6 +1027,60 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Increment listing view count
+// @route   POST /api/v1/listings/:id/view
+// @access  Public
+const incrementListingView = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  // Check that listing exists
+  const listing = await prisma.listing.findUnique({
+    where: {
+      id,
+    },
+    select: {
+      id: true,
+      view_count: true,
+    },
+  });
+
+  if (!listing) {
+    return res.status(404).json({
+      success: false,
+      message: "Listing not found",
+    });
+  }
+
+  // Increment view count
+  const updatedListing = await prisma.listing.update({
+    where: {
+      id,
+    },
+    data: {
+      view_count: {
+        increment: 1,
+      },
+    },
+    select: {
+      id: true,
+      view_count: true,
+    },
+  });
+
+  // Clear cached listing because view_count changed
+  await redisHelpers.del(`listing:${id}`);
+
+  await redisHelpers.deletePattern("listings:*");
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      listing_id: updatedListing.id,
+      view_count: updatedListing.view_count,
+    },
+  });
+});
+
 module.exports = {
   createListing,
   getListings,
@@ -1036,5 +1090,6 @@ module.exports = {
   getHostListings,
   toggleListingActive,
   getListingForUser,
-  updateBlockedDates
+  updateBlockedDates,
+  incrementListingView
 };
