@@ -404,7 +404,7 @@ const getHostBookings = asyncHandler(async (req, res) => {
             id: true,
             title: true,
             location: true,
-            blocked_dates:blocked_dates,
+            blocked_dates:true,
             price: true,
           },
         },
