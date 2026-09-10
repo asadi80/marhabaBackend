@@ -827,6 +827,9 @@ const getListingForUser = asyncHandler(async (req, res) => {
 // @desc    Update blocked dates for a listing
 // @route   PATCH /api/v1/listings/:id/blocked-dates
 // @access  Private (Host only)
+// @desc    Update blocked dates for a listing
+// @route   PATCH /api/v1/listings/:id/blocked-dates
+// @access  Private (Host only)
 const updateBlockedDates = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { blocked_dates } = req.body;
@@ -839,29 +842,22 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
   console.log("📅 blocked_dates:", blocked_dates);
   console.log("========================================");
 
-  // Validate
-  if (!Array.isArray(blocked_dates)) {
-    console.log("❌ blocked_dates is not an array");
+  // =========================================================
+  // VALIDATE INPUT
+  // =========================================================
 
+  if (!Array.isArray(blocked_dates)) {
     return res.status(400).json({
       success: false,
       message: "blocked_dates must be an array",
+      code: "INVALID_BLOCKED_DATES",
     });
   }
 
-  // Normalize and remove duplicates
-  const normalizedDates = [
-    ...new Set(
-      blocked_dates
-        .filter((date) => typeof date === "string")
-        .map((date) => date.trim())
-        .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
-    ),
-  ].sort();
+  // =========================================================
+  // CHECK LISTING OWNERSHIP
+  // =========================================================
 
-  console.log("📅 Normalized dates:", normalizedDates);
-
-  // Check ownership
   const listing = await prisma.listing.findFirst({
     where: {
       id,
@@ -875,20 +871,101 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
   });
 
   if (!listing) {
-    console.log("❌ Listing not found / ownership failed");
-
     return res.status(404).json({
       success: false,
       message: "Listing not found or you are not the owner",
+      code: "LISTING_NOT_FOUND",
     });
   }
 
-  console.log("✅ Listing found");
-  console.log("📅 Existing blocked dates:", listing.blocked_dates);
+  // =========================================================
+  // VALIDATE BLOCKED DATE OBJECTS
+  // =========================================================
 
-  // ---------------------------------------------------------
-  // Check confirmed / checked-in bookings
-  // ---------------------------------------------------------
+  const normalizedBlockedDates = [];
+
+  for (const item of blocked_dates) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const startDate = item.startDate;
+    const endDate = item.endDate;
+
+    if (
+      typeof startDate !== "string" ||
+      typeof endDate !== "string"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Each blocked date must contain startDate and endDate",
+        code: "INVALID_BLOCKED_DATE",
+      });
+    }
+
+    // YYYY-MM-DD validation
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(startDate) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(endDate)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Dates must use YYYY-MM-DD format",
+        code: "INVALID_DATE_FORMAT",
+      });
+    }
+
+    // Convert to UTC dates for validation
+    const start = new Date(`${startDate}T00:00:00.000Z`);
+    const end = new Date(`${endDate}T00:00:00.000Z`);
+
+    if (
+      Number.isNaN(start.getTime()) ||
+      Number.isNaN(end.getTime())
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid blocked date",
+        code: "INVALID_DATE",
+      });
+    }
+
+    if (start >= end) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "endDate must be after startDate",
+        code: "INVALID_DATE_RANGE",
+      });
+    }
+
+    normalizedBlockedDates.push({
+      id:
+        typeof item.id === "string"
+          ? item.id
+          : crypto.randomUUID(),
+
+      startDate,
+      endDate,
+
+      reason:
+        typeof item.reason === "string" &&
+        item.reason.trim()
+          ? item.reason.trim()
+          : "Blocked by host",
+    });
+  }
+
+  console.log(
+    "📅 Normalized blocked dates:",
+    normalizedBlockedDates
+  );
+
+  // =========================================================
+  // GET CONFIRMED / CHECKED-IN BOOKINGS
+  // =========================================================
 
   const bookings = await prisma.booking.findMany({
     where: {
@@ -903,6 +980,10 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
       status: true,
     },
   });
+
+  // =========================================================
+  // CREATE SET OF BOOKED DATES
+  // =========================================================
 
   const bookedDates = new Set();
 
@@ -927,72 +1008,139 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
     );
 
     while (current < checkout) {
-      bookedDates.add(current.toISOString().split("T")[0]);
+      bookedDates.add(
+        current.toISOString().split("T")[0]
+      );
 
-      current.setUTCDate(current.getUTCDate() + 1);
+      current.setUTCDate(
+        current.getUTCDate() + 1
+      );
     }
   }
 
-  console.log("📅 Already booked dates:", [...bookedDates]);
-
-  // ---------------------------------------------------------
-  // Prevent blocking booked dates
-  // ---------------------------------------------------------
-
-  const conflictingDates = normalizedDates.filter((date) =>
-    bookedDates.has(date)
+  console.log(
+    "📅 Already booked dates:",
+    [...bookedDates]
   );
 
+  // =========================================================
+  // CHECK BLOCKED RANGES AGAINST BOOKINGS
+  // =========================================================
+
+  const conflictingDates = [];
+
+  for (const blocked of normalizedBlockedDates) {
+    let current = new Date(
+      `${blocked.startDate}T00:00:00.000Z`
+    );
+
+    const end = new Date(
+      `${blocked.endDate}T00:00:00.000Z`
+    );
+
+    while (current < end) {
+      const dateString =
+        current.toISOString().split("T")[0];
+
+      if (bookedDates.has(dateString)) {
+        conflictingDates.push({
+          date: dateString,
+          blocked_range: {
+            startDate: blocked.startDate,
+            endDate: blocked.endDate,
+          },
+        });
+      }
+
+      current.setUTCDate(
+        current.getUTCDate() + 1
+      );
+    }
+  }
+
+  // =========================================================
+  // PREVENT CONFLICT
+  // =========================================================
+
   if (conflictingDates.length > 0) {
-    console.log("❌ Conflicting dates:", conflictingDates);
+    console.log(
+      "❌ Blocked dates conflict with bookings:",
+      conflictingDates
+    );
 
     return res.status(400).json({
       success: false,
       message:
-        "Some dates already have a confirmed or checked-in booking",
+        "Some blocked dates overlap with a confirmed or checked-in booking",
+      code: "DATES_ALREADY_BOOKED",
       conflicting_dates: conflictingDates,
     });
   }
 
-  // ---------------------------------------------------------
-  // UPDATE DATABASE
-  // ---------------------------------------------------------
+  // =========================================================
+  // SAVE TO DATABASE
+  // =========================================================
 
-  console.log("💾 Saving blocked dates to database...");
+  console.log(
+    "💾 Saving blocked dates:",
+    normalizedBlockedDates
+  );
 
-  const updatedListing = await prisma.listing.update({
-    where: {
-      id,
-    },
-    data: {
-      blocked_dates: normalizedDates,
-    },
-    select: {
-      id: true,
-      blocked_dates: true,
-      updated_at: true,
-    },
-  });
+  const updatedListing =
+    await prisma.listing.update({
+      where: {
+        id,
+      },
 
-  console.log("✅ BLOCKED DATES SAVED");
-  console.log("📅 Saved:", updatedListing.blocked_dates);
+      data: {
+        blocked_dates: normalizedBlockedDates,
+      },
 
-  // ---------------------------------------------------------
+      select: {
+        id: true,
+        blocked_dates: true,
+        updated_at: true,
+      },
+    });
+
+  // =========================================================
   // CLEAR CACHE
-  // ---------------------------------------------------------
+  // =========================================================
 
   await redisHelpers.del(`listing:${id}`);
-  await redisHelpers.deletePattern("listings:*");
 
-  console.log("🧹 Listing cache cleared");
+  await redisHelpers.deletePattern(
+    "listings:*"
+  );
+
+  console.log("✅ BLOCKED DATES SAVED");
+  console.log(
+    "📅 Saved:",
+    updatedListing.blocked_dates
+  );
+
+  // =========================================================
+  // RESPONSE
+  // =========================================================
 
   return res.status(200).json({
     success: true,
-    message: "Blocked dates updated successfully",
+
+    message:
+      "Blocked dates updated successfully",
+
     data: {
       listing_id: updatedListing.id,
-      blocked_dates: updatedListing.blocked_dates,
-      updated_at: updatedListing.updated_at,
+
+      blocked_dates:
+        Array.isArray(
+          updatedListing.blocked_dates
+        )
+          ? updatedListing.blocked_dates
+          : [],
+
+      updated_at:
+        updatedListing.updated_at,
     },
   });
 });
