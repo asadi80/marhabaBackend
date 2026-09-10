@@ -831,62 +831,37 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { blocked_dates } = req.body;
 
-  // =========================================================
-  // VALIDATE INPUT
-  // =========================================================
+  console.log("========================================");
+  console.log("📅 UPDATE BLOCKED DATES");
+  console.log("📅 Listing ID:", id);
+  console.log("📅 User ID:", req.user?.id);
+  console.log("📅 Request body:", req.body);
+  console.log("📅 blocked_dates:", blocked_dates);
+  console.log("========================================");
 
+  // Validate
   if (!Array.isArray(blocked_dates)) {
+    console.log("❌ blocked_dates is not an array");
+
     return res.status(400).json({
       success: false,
       message: "blocked_dates must be an array",
-      code: "INVALID_BLOCKED_DATES",
     });
   }
 
-  // =========================================================
-  // NORMALIZE DATES
-  // =========================================================
-  // Store dates as YYYY-MM-DD strings.
-  // This avoids timezone problems.
-
+  // Normalize and remove duplicates
   const normalizedDates = [
     ...new Set(
       blocked_dates
-        .map((date) => {
-          if (typeof date !== "string") return null;
-
-          // Accept YYYY-MM-DD only
-          const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-
-          if (!match) return null;
-
-          const year = Number(match[1]);
-          const month = Number(match[2]);
-          const day = Number(match[3]);
-
-          const testDate = new Date(
-            Date.UTC(year, month - 1, day)
-          );
-
-          // Make sure it is a real calendar date
-          if (
-            testDate.getUTCFullYear() !== year ||
-            testDate.getUTCMonth() !== month - 1 ||
-            testDate.getUTCDate() !== day
-          ) {
-            return null;
-          }
-
-          return date;
-        })
-        .filter(Boolean)
+        .filter((date) => typeof date === "string")
+        .map((date) => date.trim())
+        .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
     ),
-  ];
+  ].sort();
 
-  // =========================================================
-  // CHECK LISTING OWNERSHIP
-  // =========================================================
+  console.log("📅 Normalized dates:", normalizedDates);
 
+  // Check ownership
   const listing = await prisma.listing.findFirst({
     where: {
       id,
@@ -900,18 +875,20 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
   });
 
   if (!listing) {
+    console.log("❌ Listing not found / ownership failed");
+
     return res.status(404).json({
       success: false,
       message: "Listing not found or you are not the owner",
-      code: "LISTING_NOT_FOUND",
     });
   }
 
-  // =========================================================
-  // GET EXISTING BOOKINGS
-  // =========================================================
-  // A host should not be able to manually block a date that
-  // already belongs to a confirmed or checked-in booking.
+  console.log("✅ Listing found");
+  console.log("📅 Existing blocked dates:", listing.blocked_dates);
+
+  // ---------------------------------------------------------
+  // Check confirmed / checked-in bookings
+  // ---------------------------------------------------------
 
   const bookings = await prisma.booking.findMany({
     where: {
@@ -923,70 +900,65 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
     select: {
       check_in: true,
       check_out: true,
+      status: true,
     },
   });
-
-  // =========================================================
-  // BUILD BOOKED DATE SET
-  // =========================================================
 
   const bookedDates = new Set();
 
   for (const booking of bookings) {
-    const start = new Date(booking.check_in);
-    const end = new Date(booking.check_out);
+    const checkIn = new Date(booking.check_in);
+    const checkOut = new Date(booking.check_out);
 
-    // Normalize to UTC date
     let current = new Date(
       Date.UTC(
-        start.getUTCFullYear(),
-        start.getUTCMonth(),
-        start.getUTCDate()
+        checkIn.getUTCFullYear(),
+        checkIn.getUTCMonth(),
+        checkIn.getUTCDate()
       )
     );
 
     const checkout = new Date(
       Date.UTC(
-        end.getUTCFullYear(),
-        end.getUTCMonth(),
-        end.getUTCDate()
+        checkOut.getUTCFullYear(),
+        checkOut.getUTCMonth(),
+        checkOut.getUTCDate()
       )
     );
 
-    // check-in is blocked
-    // check-out is NOT blocked because another booking
-    // can start on checkout day.
-
     while (current < checkout) {
-      const dateString = current.toISOString().split("T")[0];
-
-      bookedDates.add(dateString);
+      bookedDates.add(current.toISOString().split("T")[0]);
 
       current.setUTCDate(current.getUTCDate() + 1);
     }
   }
 
-  // =========================================================
-  // PREVENT BLOCKING BOOKED DATES
-  // =========================================================
+  console.log("📅 Already booked dates:", [...bookedDates]);
+
+  // ---------------------------------------------------------
+  // Prevent blocking booked dates
+  // ---------------------------------------------------------
 
   const conflictingDates = normalizedDates.filter((date) =>
     bookedDates.has(date)
   );
 
   if (conflictingDates.length > 0) {
+    console.log("❌ Conflicting dates:", conflictingDates);
+
     return res.status(400).json({
       success: false,
       message:
-        "Some dates cannot be blocked because they already have a confirmed or checked-in booking",
-      code: "DATES_ALREADY_BOOKED",
+        "Some dates already have a confirmed or checked-in booking",
       conflicting_dates: conflictingDates,
     });
   }
 
-  // =========================================================
-  // UPDATE LISTING
-  // =========================================================
+  // ---------------------------------------------------------
+  // UPDATE DATABASE
+  // ---------------------------------------------------------
+
+  console.log("💾 Saving blocked dates to database...");
 
   const updatedListing = await prisma.listing.update({
     where: {
@@ -994,7 +966,6 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
     },
     data: {
       blocked_dates: normalizedDates,
-      updated_at: new Date(),
     },
     select: {
       id: true,
@@ -1003,30 +974,28 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
     },
   });
 
-  // =========================================================
+  console.log("✅ BLOCKED DATES SAVED");
+  console.log("📅 Saved:", updatedListing.blocked_dates);
+
+  // ---------------------------------------------------------
   // CLEAR CACHE
-  // =========================================================
+  // ---------------------------------------------------------
 
   await redisHelpers.del(`listing:${id}`);
   await redisHelpers.deletePattern("listings:*");
 
-  // =========================================================
-  // RESPONSE
-  // =========================================================
+  console.log("🧹 Listing cache cleared");
 
   return res.status(200).json({
     success: true,
     message: "Blocked dates updated successfully",
     data: {
       listing_id: updatedListing.id,
-      blocked_dates: Array.isArray(updatedListing.blocked_dates)
-        ? updatedListing.blocked_dates
-        : [],
+      blocked_dates: updatedListing.blocked_dates,
       updated_at: updatedListing.updated_at,
     },
   });
 });
-
 // @desc    Increment listing view count
 // @route   POST /api/v1/listings/:id/view
 // @access  Public
