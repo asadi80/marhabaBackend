@@ -3,19 +3,20 @@ const express = require("express");
 const router = express.Router();
 
 const {
+  blockUser,
   getBlockedUsers,
   unblockUser,
 } = require("../controllers/hostBlockedUserController");
 
-const {
-  protect,
-  isHost,
-} = require("../middleware/auth");
+const { protect } = require("../middleware/authMiddleware");
 
-// Get users blocked by logged-in host
-router.get("/blocked-users", protect,isHost, getBlockedUsers);
+// Block user
+router.post("/blocked-user", protect, blockUser);
+
+// Get blocked users
+router.get("/blocked-users", protect, getBlockedUsers);
 
 // Unblock user
-router.delete("/blocked-users/:userId", protect,isHost, unblockUser);
+router.delete("/blocked-users/:userId", protect, unblockUser);
 
 module.exports = router;

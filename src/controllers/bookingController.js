@@ -18,7 +18,6 @@ const emailService = require("../services/emailService");
 // @access  Private
 const createBooking = asyncHandler(async (req, res) => {
   const { listing_id, check_in, check_out, guests = 1 } = req.body;
-  
 
   // Find listing
   const listing = await prisma.listing.findUnique({
@@ -70,6 +69,27 @@ const createBooking = asyncHandler(async (req, res) => {
     });
   }
 
+  // ============================================================
+  // CHECK HOST BLOCKED USER
+  // ============================================================
+
+  const userId = req.user.id;
+
+  const blockedUser = await prisma.$queryRaw`
+  SELECT id
+  FROM host_blocked_users
+  WHERE host_id = ${listing.host_id}
+    AND user_id = ${userId}
+  LIMIT 1
+`;
+
+  if (blockedUser.length > 0) {
+    return res.status(403).json({
+      success: false,
+      message: "You are blocked by this host and cannot book this listing.",
+    });
+  }
+
   // Validate dates
   const checkInDate = new Date(check_in);
   const checkOutDate = new Date(check_out);
@@ -102,12 +122,12 @@ const createBooking = asyncHandler(async (req, res) => {
   }
 
   console.log("========== BOOKING DEBUG ==========");
-console.log("Listing:", listing.id);
-console.log("Requested check-in:", checkInDate);
-console.log("Requested check-out:", checkOutDate);
-console.log("Existing bookings:", listing.bookings);
-console.log("Blocked dates:", listing.blocked_dates);
-console.log("==================================");
+  console.log("Listing:", listing.id);
+  console.log("Requested check-in:", checkInDate);
+  console.log("Requested check-out:", checkOutDate);
+  console.log("Existing bookings:", listing.bookings);
+  console.log("Blocked dates:", listing.blocked_dates);
+  console.log("==================================");
 
   // Check existing bookings
   const isAvailable = listing.bookings.every((booking) => {
@@ -404,7 +424,7 @@ const getHostBookings = asyncHandler(async (req, res) => {
             id: true,
             title: true,
             location: true,
-            blocked_dates:true,
+            blocked_dates: true,
             price: true,
           },
         },
@@ -542,9 +562,7 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
   const isHost = booking.listing.host_id === req.user.id;
   const isUser = booking.user_id === req.user.id;
 
-  const isAdmin =
-    req.user.role === "admin" ||
-    req.user.role === "super_admin";
+  const isAdmin = req.user.role === "admin" || req.user.role === "super_admin";
 
   // -----------------------------------------
   // Allowed status transitions
@@ -574,9 +592,7 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
 
   // User can cancel their own pending/confirmed booking
   if (status === "cancelled" && isUser) {
-    canUpdate = ["pending", "confirmed"].includes(
-      booking.status
-    );
+    canUpdate = ["pending", "confirmed"].includes(booking.status);
   }
 
   // Host or admin can change booking status
@@ -681,42 +697,33 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
 
   if (booking.user.email) {
     try {
-      const emailResult =
-        await emailService.sendBookingStatusEmail(
-          booking.user.email,
-          booking.user.name,
-          {
-            id: booking.id,
-            listingTitle: booking.listing.title,
-            checkIn: booking.check_in,
-            checkOut: booking.check_out,
-            guests: booking.guests,
-          },
-          status,
-          reason || null
-        );
+      const emailResult = await emailService.sendBookingStatusEmail(
+        booking.user.email,
+        booking.user.name,
+        {
+          id: booking.id,
+          listingTitle: booking.listing.title,
+          checkIn: booking.check_in,
+          checkOut: booking.check_out,
+          guests: booking.guests,
+        },
+        status,
+        reason || null,
+      );
 
       if (emailResult?.success) {
         console.log(
-          `📧 Booking status email sent: ${booking.user.email} (${status})`
+          `📧 Booking status email sent: ${booking.user.email} (${status})`,
         );
       } else {
-        console.error(
-          `❌ Booking status email failed:`,
-          emailResult?.error
-        );
+        console.error(`❌ Booking status email failed:`, emailResult?.error);
       }
     } catch (error) {
       // Email errors must NOT break booking status update
-      console.error(
-        "❌ Failed to send booking status email:",
-        error
-      );
+      console.error("❌ Failed to send booking status email:", error);
     }
   } else {
-    console.log(
-      `⚠️ No email address for booking user ${booking.user_id}`
-    );
+    console.log(`⚠️ No email address for booking user ${booking.user_id}`);
   }
 
   // -----------------------------------------
@@ -1045,8 +1052,7 @@ const getHostStats = asyncHandler(async (req, res) => {
       upcoming_bookings: upcomingBookings,
       completed_bookings: completedBookings,
 
-      total_booking_value:
-        totalBookingValue._sum.total_price || 0,
+      total_booking_value: totalBookingValue._sum.total_price || 0,
 
       monthly_booking_value: monthlyBookingValue,
 
