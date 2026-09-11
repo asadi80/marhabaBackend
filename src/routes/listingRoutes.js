@@ -99,4 +99,13 @@ router.post(
   listingController.incrementListingView
 );
 
+router.get(
+  "/nearby",
+  listingController.getNearbyListings
+);
+router.get(
+  "/:id",
+  listingController.getListing
+);
+
 module.exports = router;

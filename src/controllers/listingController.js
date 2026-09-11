@@ -1,7 +1,37 @@
+const crypto = require("crypto");
+
 const { prisma } = require("../config/database");
 const { redisHelpers } = require("../config/redis");
 const { asyncHandler } = require("../middleware/errorHandler");
 const { paginate, paginationMeta } = require("../utils/helpers");
+
+
+// ============================================================
+// HAVERSINE DISTANCE
+// Calculate distance between two coordinates in kilometers
+// ============================================================
+
+function deg2rad(deg) {
+  return deg * (Math.PI / 180);
+}
+
+function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+
+  const dLat = deg2rad(lat2 - lat1);
+  const dLon = deg2rad(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(deg2rad(lat1)) *
+      Math.cos(deg2rad(lat2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+};
 
 // @desc    Create listing
 // @route   POST /api/v1/listings
@@ -84,6 +114,7 @@ const createListing = asyncHandler(async (req, res) => {
           name: true,
           email: true,
           phone_number: true,
+           host_details: true,
         },
       },
     },
@@ -1213,10 +1244,6 @@ const deleteBlockedDate = asyncHandler(async (req, res) => {
   console.log("🗑️ User ID:", userId);
   console.log("========================================");
 
-  // ==========================================================
-  // VALIDATE PARAMS
-  // ==========================================================
-
   if (!listingId || !blockedDateId) {
     return res.status(400).json({
       success: false,
@@ -1225,10 +1252,15 @@ const deleteBlockedDate = asyncHandler(async (req, res) => {
     });
   }
 
-  // ==========================================================
-  // FIND LISTING AND VERIFY HOST OWNERSHIP
-  // ==========================================================
+  if (!userId) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required",
+      code: "UNAUTHORIZED",
+    });
+  }
 
+  // Find listing belonging to logged-in host
   const listing = await prisma.listing.findFirst({
     where: {
       id: listingId,
@@ -1249,25 +1281,18 @@ const deleteBlockedDate = asyncHandler(async (req, res) => {
     });
   }
 
-  // ==========================================================
-  // GET CURRENT BLOCKED DATES
-  // ==========================================================
-
   const currentBlockedDates = Array.isArray(listing.blocked_dates)
     ? listing.blocked_dates
     : [];
 
   console.log("📅 Current blocked dates:", currentBlockedDates);
 
-  // ==========================================================
-  // FIND THE SPECIFIC BLOCKED DATE
-  // ==========================================================
-
+  // Find exact blocked date
   const blockedDate = currentBlockedDates.find(
     (item) =>
       item &&
       typeof item === "object" &&
-      item.id === blockedDateId
+      String(item.id) === String(blockedDateId)
   );
 
   if (!blockedDate) {
@@ -1280,37 +1305,24 @@ const deleteBlockedDate = asyncHandler(async (req, res) => {
 
   console.log("🎯 Removing blocked date:", blockedDate);
 
-  // ==========================================================
-  // REMOVE ONLY THIS BLOCKED DATE
-  // ==========================================================
-
+  // Remove ONLY this blocked date
   const updatedBlockedDates = currentBlockedDates.filter(
     (item) =>
       !(
         item &&
         typeof item === "object" &&
-        item.id === blockedDateId
+        String(item.id) === String(blockedDateId)
       )
   );
 
-  console.log(
-    "📅 Remaining blocked dates:",
-    updatedBlockedDates
-  );
-
-  // ==========================================================
-  // SAVE UPDATED JSON ARRAY
-  // ==========================================================
-
+  // Save
   const updatedListing = await prisma.listing.update({
     where: {
       id: listingId,
     },
-
     data: {
       blocked_dates: updatedBlockedDates,
     },
-
     select: {
       id: true,
       blocked_dates: true,
@@ -1318,37 +1330,315 @@ const deleteBlockedDate = asyncHandler(async (req, res) => {
     },
   });
 
-  // ==========================================================
-  // CLEAR CACHE
-  // ==========================================================
-
+  // Clear caches
   await redisHelpers.del(`listing:${listingId}`);
-
   await redisHelpers.deletePattern("listings:*");
 
   console.log("✅ BLOCKED DATE DELETED");
-  console.log("📅 Saved blocked dates:", updatedListing.blocked_dates);
-
-  // ==========================================================
-  // RESPONSE
-  // ==========================================================
+  console.log(
+    "📅 Remaining blocked dates:",
+    updatedListing.blocked_dates
+  );
 
   return res.status(200).json({
     success: true,
     message: "Blocked date deleted successfully",
-
     data: {
       listing_id: updatedListing.id,
-
       deleted_blocked_date: blockedDate,
-
       blocked_dates: Array.isArray(updatedListing.blocked_dates)
         ? updatedListing.blocked_dates
         : [],
-
       updated_at: updatedListing.updated_at,
     },
   });
+});
+
+// ============================================================
+// GET NEARBY LISTINGS
+// GET /api/v1/listings/nearby
+//
+// Query:
+// ?lat=32.8872
+// &lng=13.1913
+// &radius=50
+// &limit=20
+// &category=beachfront
+// ============================================================
+
+const getNearbyListings = asyncHandler(async (req, res) => {
+  try {
+    const lat = parseFloat(req.query.lat);
+    const lng = parseFloat(req.query.lng);
+    const radius = parseFloat(req.query.radius) || 50;
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const category = req.query.category;
+
+    // ========================================================
+    // VALIDATE COORDINATES
+    // ========================================================
+
+    if (
+      Number.isNaN(lat) ||
+      Number.isNaN(lng) ||
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lng)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid coordinates",
+      });
+    }
+
+    // Validate latitude / longitude ranges
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid latitude or longitude",
+      });
+    }
+
+    // Prevent unreasonable values
+    const safeRadius = Math.min(Math.max(radius, 1), 500);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+
+    // ========================================================
+    // WHERE CONDITIONS
+    // ========================================================
+
+    let whereConditions = `
+      l.status = 'active'
+      AND l.latitude IS NOT NULL
+      AND l.longitude IS NOT NULL
+      AND u.status = 'confirmed'
+      AND u.role = 'host'
+    `;
+
+    const queryParams = [];
+    let paramIndex = 1;
+
+    // ========================================================
+    // CATEGORY FILTER
+    // ========================================================
+
+    if (category && category !== "all") {
+      whereConditions += ` AND l.category = $${paramIndex}`;
+      queryParams.push(category);
+      paramIndex++;
+    }
+
+    // ========================================================
+    // BOUNDING BOX
+    //
+    // This reduces the number of listings that need the
+    // expensive Haversine calculation.
+    // ========================================================
+
+    const degreesPerKm = 0.009;
+
+    const latDelta = safeRadius * degreesPerKm;
+
+    // Prevent division problems near the poles
+    const cosLat = Math.cos((lat * Math.PI) / 180);
+
+    const lngDelta =
+      safeRadius *
+      degreesPerKm /
+      Math.max(Math.abs(cosLat), 0.01);
+
+    const latParam = paramIndex;
+    const lngParam = paramIndex + 1;
+    const latDeltaParam = paramIndex + 2;
+    const lngDeltaParam = paramIndex + 3;
+
+    const bboxQuery = `
+      SELECT
+        l.id,
+        l.title,
+        l.description,
+        l.price,
+        l.location,
+        l.latitude,
+        l.longitude,
+        l.images,
+        l.category,
+        l.amenities,
+        l.created_at,
+
+        u.name AS host_name,
+        u.status AS host_status
+
+      FROM listings l
+
+      JOIN users u
+        ON l.host_id = u.id
+
+      WHERE ${whereConditions}
+
+        AND l.latitude BETWEEN
+          $${latParam}::float - $${latDeltaParam}::float
+          AND
+          $${latParam}::float + $${latDeltaParam}::float
+
+        AND l.longitude BETWEEN
+          $${lngParam}::float - $${lngDeltaParam}::float
+          AND
+          $${lngParam}::float + $${lngDeltaParam}::float
+    `;
+
+    queryParams.push(
+      lat,
+      lng,
+      latDelta,
+      lngDelta
+    );
+
+    // ========================================================
+    // DATABASE QUERY
+    // ========================================================
+
+    const result = await prisma.$queryRawUnsafe(
+      bboxQuery,
+      ...queryParams
+    );
+
+    // ========================================================
+    // CALCULATE EXACT DISTANCE
+    // ========================================================
+
+    const listings = result
+      .map((listing) => {
+        const listingLat = parseFloat(listing.latitude);
+        const listingLng = parseFloat(listing.longitude);
+
+        const distance = getDistanceFromLatLonInKm(
+          lat,
+          lng,
+          listingLat,
+          listingLng
+        );
+
+        return {
+          ...listing,
+
+          distance_km:
+            Math.round(distance * 10) / 10,
+        };
+      })
+
+      .filter(
+        (listing) =>
+          listing.distance_km <= safeRadius
+      )
+
+      .sort(
+        (a, b) =>
+          a.distance_km - b.distance_km
+      )
+
+      .slice(0, safeLimit);
+
+    // ========================================================
+    // FORMAT RESPONSE
+    // ========================================================
+
+    const formattedListings = listings.map(
+      (listing) => ({
+        id: listing.id,
+
+        title: listing.title,
+
+        description:
+          listing.description,
+
+        price: listing.price,
+
+        location:
+          listing.location,
+
+        coordinates: {
+          lat: parseFloat(
+            listing.latitude
+          ),
+
+          lng: parseFloat(
+            listing.longitude
+          ),
+        },
+
+        images:
+          Array.isArray(listing.images)
+            ? listing.images
+            : [],
+
+        category:
+          listing.category,
+
+        amenities:
+          Array.isArray(listing.amenities)
+            ? listing.amenities
+            : [],
+
+        createdAt:
+          listing.created_at,
+
+        hostName:
+          listing.host_name,
+
+        hostStatus:
+          listing.host_status,
+
+        distance:
+          listing.distance_km,
+      })
+    );
+
+    // ========================================================
+    // RESPONSE
+    // ========================================================
+
+    return res.status(200).json({
+      success: true,
+
+      center: {
+        lat,
+        lng,
+      },
+
+      radius: safeRadius,
+
+      count:
+        formattedListings.length,
+
+      listings:
+        formattedListings,
+
+      filters: {
+        category:
+          category || "all",
+
+        limit:
+          safeLimit,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "❌ Nearby listings error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+
+      error:
+        "Internal server error",
+
+      message:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
+    });
+  }
 });
 
 module.exports = {
@@ -1363,4 +1653,5 @@ module.exports = {
   updateBlockedDates,
   incrementListingView,
   deleteBlockedDate,
+  getNearbyListings
 };
