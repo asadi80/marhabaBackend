@@ -68,8 +68,6 @@ router.delete(
   "/:listingId/blocked-dates/:blockedDateId",
   protect,
   isHost,
-  commonValidators.id(),
-  listingValidators.update,
   handleValidationErrors,
   listingController.deleteBlockedDate
 );
