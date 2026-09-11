@@ -8,7 +8,7 @@ const {
   unblockUser,
 } = require("../controllers/hostBlockedUserController");
 
-const { protect } = require("../middleware/authMiddleware");
+const { protect } = require("../middleware/auth");
 
 // Block user
 router.post("/blocked-user", protect, blockUser);
