@@ -53,11 +53,7 @@ const blockUser = asyncHandler(async (req, res) => {
   }
 
   // ----------------------------------------------------------
-  // If bookingId was supplied, verify:
-  //
-  // 1. Booking exists
-  // 2. Booking belongs to this host
-  // 3. Booking belongs to the same user
+  // If bookingId supplied, verify booking
   // ----------------------------------------------------------
   if (bookingId) {
     const booking = await prisma.booking.findUnique({
@@ -100,15 +96,16 @@ const blockUser = asyncHandler(async (req, res) => {
   // ----------------------------------------------------------
   // Check if already blocked
   // ----------------------------------------------------------
-  const existingBlock = await prisma.$queryRaw`
-    SELECT id
-    FROM host_blocked_users
-    WHERE host_id = ${hostId}
-      AND user_id = ${userId}
-    LIMIT 1
-  `;
+  const existingBlock = await prisma.hostBlockedUser.findUnique({
+    where: {
+      host_id_user_id: {
+        host_id: hostId,
+        user_id: userId,
+      },
+    },
+  });
 
-  if (existingBlock.length > 0) {
+  if (existingBlock) {
     return res.status(409).json({
       success: false,
       message: "User is already blocked",
@@ -118,35 +115,19 @@ const blockUser = asyncHandler(async (req, res) => {
   // ----------------------------------------------------------
   // Create block
   // ----------------------------------------------------------
-  const result = await prisma.$queryRaw`
-    INSERT INTO host_blocked_users (
-      user_id,
-      host_id,
-      booking_id,
-      reason,
-      created_at
-    )
-    VALUES (
-      ${userId},
-      ${hostId},
-      ${bookingId || null},
-      ${reason || null},
-      NOW()
-    )
-    RETURNING
-      id,
-      user_id,
-      host_id,
-      booking_id,
-      reason,
-      created_at
-  `;
-
-  const blockedUser = result[0];
+  const blockedUser = await prisma.hostBlockedUser.create({
+    data: {
+      host_id: hostId,
+      user_id: userId,
+      booking_id: bookingId || null,
+      reason: reason || "Blocked by host",
+    },
+  });
 
   return res.status(201).json({
     success: true,
     message: "User blocked successfully",
+
     blockedUser: {
       ...blockedUser,
       user_name: user.name,
@@ -163,27 +144,48 @@ const blockUser = asyncHandler(async (req, res) => {
 const getBlockedUsers = asyncHandler(async (req, res) => {
   const hostId = req.user.id;
 
-  const blockedUsers = await prisma.$queryRaw`
-    SELECT
-      hbu.id,
-      hbu.user_id,
-      hbu.host_id,
-      hbu.booking_id,
-      hbu.reason,
-      hbu.created_at,
-      u.name AS user_name,
-      u.email AS user_email,
-      u.phone_number AS user_phone
-    FROM host_blocked_users hbu
-    JOIN users u
-      ON hbu.user_id = u.id
-    WHERE hbu.host_id = ${hostId}
-    ORDER BY hbu.created_at DESC
-  `;
+  const blockedUsers = await prisma.hostBlockedUser.findMany({
+    where: {
+      host_id: hostId,
+    },
+
+    orderBy: {
+      created_at: "desc",
+    },
+
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone_number: true,
+        },
+      },
+
+      booking: {
+        select: {
+          id: true,
+        },
+      },
+    },
+  });
 
   return res.status(200).json({
     success: true,
-    blockedUsers,
+
+    blockedUsers: blockedUsers.map((block) => ({
+      id: block.id,
+      user_id: block.user_id,
+      host_id: block.host_id,
+      booking_id: block.booking_id,
+      reason: block.reason,
+      created_at: block.created_at,
+
+      user_name: block.user?.name || null,
+      user_email: block.user?.email || null,
+      user_phone: block.user?.phone_number || null,
+    })),
   });
 });
 
@@ -202,13 +204,14 @@ const unblockUser = asyncHandler(async (req, res) => {
     });
   }
 
-  const deleted = await prisma.$executeRaw`
-    DELETE FROM host_blocked_users
-    WHERE host_id = ${hostId}
-      AND user_id = ${userId}
-  `;
+  const deleted = await prisma.hostBlockedUser.deleteMany({
+    where: {
+      host_id: hostId,
+      user_id: userId,
+    },
+  });
 
-  if (deleted === 0) {
+  if (deleted.count === 0) {
     return res.status(404).json({
       success: false,
       message: "Block record not found",

@@ -184,7 +184,7 @@ model HostBlockedUser {
   id         String   @id @default(uuid()) @db.Uuid
   host_id    String   @db.Uuid
   user_id    String   @db.Uuid
-  reason     String   @db.VarChar(50)
+  reason     String   @default("Blocked by host") @db.VarChar(50)
   booking_id String?  @db.Uuid
   created_at DateTime @default(now()) @db.Timestamp
 
@@ -196,6 +196,8 @@ model HostBlockedUser {
   @@unique([host_id, user_id])
   @@index([host_id])
   @@index([user_id])
+
+  @@map("host_blocked_users")
 }
 
 model HostSubscriptionPayment {
