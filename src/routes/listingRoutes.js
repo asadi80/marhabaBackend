@@ -65,7 +65,7 @@ router.patch(
 );
 
 router.delete(
-  "/:id/blocked-dates/:id",
+  "/:id/blocked-dates/:blockedDateId",
   protect,
   isHost,
   commonValidators.id(),
