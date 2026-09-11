@@ -1197,6 +1197,159 @@ const incrementListingView = asyncHandler(async (req, res) => {
     },
   });
 });
+// ============================================================
+// DELETE SPECIFIC BLOCKED DATE
+// DELETE /api/v1/listings/:listingId/blocked-dates/:blockedDateId
+// ============================================================
+
+const deleteBlockedDate = asyncHandler(async (req, res) => {
+  const { listingId, blockedDateId } = req.params;
+  const userId = req.user?.id;
+
+  console.log("========================================");
+  console.log("🗑️ DELETE BLOCKED DATE");
+  console.log("🗑️ Listing ID:", listingId);
+  console.log("🗑️ Blocked Date ID:", blockedDateId);
+  console.log("🗑️ User ID:", userId);
+  console.log("========================================");
+
+  // ==========================================================
+  // VALIDATE PARAMS
+  // ==========================================================
+
+  if (!listingId || !blockedDateId) {
+    return res.status(400).json({
+      success: false,
+      message: "listingId and blockedDateId are required",
+      code: "MISSING_PARAMETERS",
+    });
+  }
+
+  // ==========================================================
+  // FIND LISTING AND VERIFY HOST OWNERSHIP
+  // ==========================================================
+
+  const listing = await prisma.listing.findFirst({
+    where: {
+      id: listingId,
+      host_id: userId,
+    },
+    select: {
+      id: true,
+      host_id: true,
+      blocked_dates: true,
+    },
+  });
+
+  if (!listing) {
+    return res.status(404).json({
+      success: false,
+      message: "Listing not found or you are not the owner",
+      code: "LISTING_NOT_FOUND",
+    });
+  }
+
+  // ==========================================================
+  // GET CURRENT BLOCKED DATES
+  // ==========================================================
+
+  const currentBlockedDates = Array.isArray(listing.blocked_dates)
+    ? listing.blocked_dates
+    : [];
+
+  console.log("📅 Current blocked dates:", currentBlockedDates);
+
+  // ==========================================================
+  // FIND THE SPECIFIC BLOCKED DATE
+  // ==========================================================
+
+  const blockedDate = currentBlockedDates.find(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      item.id === blockedDateId
+  );
+
+  if (!blockedDate) {
+    return res.status(404).json({
+      success: false,
+      message: "Blocked date not found",
+      code: "BLOCKED_DATE_NOT_FOUND",
+    });
+  }
+
+  console.log("🎯 Removing blocked date:", blockedDate);
+
+  // ==========================================================
+  // REMOVE ONLY THIS BLOCKED DATE
+  // ==========================================================
+
+  const updatedBlockedDates = currentBlockedDates.filter(
+    (item) =>
+      !(
+        item &&
+        typeof item === "object" &&
+        item.id === blockedDateId
+      )
+  );
+
+  console.log(
+    "📅 Remaining blocked dates:",
+    updatedBlockedDates
+  );
+
+  // ==========================================================
+  // SAVE UPDATED JSON ARRAY
+  // ==========================================================
+
+  const updatedListing = await prisma.listing.update({
+    where: {
+      id: listingId,
+    },
+
+    data: {
+      blocked_dates: updatedBlockedDates,
+    },
+
+    select: {
+      id: true,
+      blocked_dates: true,
+      updated_at: true,
+    },
+  });
+
+  // ==========================================================
+  // CLEAR CACHE
+  // ==========================================================
+
+  await redisHelpers.del(`listing:${listingId}`);
+
+  await redisHelpers.deletePattern("listings:*");
+
+  console.log("✅ BLOCKED DATE DELETED");
+  console.log("📅 Saved blocked dates:", updatedListing.blocked_dates);
+
+  // ==========================================================
+  // RESPONSE
+  // ==========================================================
+
+  return res.status(200).json({
+    success: true,
+    message: "Blocked date deleted successfully",
+
+    data: {
+      listing_id: updatedListing.id,
+
+      deleted_blocked_date: blockedDate,
+
+      blocked_dates: Array.isArray(updatedListing.blocked_dates)
+        ? updatedListing.blocked_dates
+        : [],
+
+      updated_at: updatedListing.updated_at,
+    },
+  });
+});
 
 module.exports = {
   createListing,
@@ -1208,5 +1361,6 @@ module.exports = {
   toggleListingActive,
   getListingForUser,
   updateBlockedDates,
-  incrementListingView
+  incrementListingView,
+  deleteBlockedDate,
 };

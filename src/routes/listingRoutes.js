@@ -65,6 +65,17 @@ router.patch(
 );
 
 router.delete(
+  "/:id/blocked-dates/:id",
+  protect,
+  isHost,
+  commonValidators.id(),
+  listingValidators.update,
+  handleValidationErrors,
+  listingController.deleteBlockedDate
+);
+
+
+router.delete(
   "/:id",
   protect,
   isHost,
