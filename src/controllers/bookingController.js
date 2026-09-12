@@ -77,7 +77,7 @@ const createBooking = asyncHandler(async (req, res) => {
 
   const blockedUser = await prisma.$queryRaw`
   SELECT id
-  FROM HostBlockedUser
+  FROM host_blocked_users
   WHERE host_id = ${listing.host_id}
     AND user_id = ${userId}
   LIMIT 1
