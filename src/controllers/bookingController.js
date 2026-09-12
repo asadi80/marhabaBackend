@@ -75,20 +75,22 @@ const createBooking = asyncHandler(async (req, res) => {
 
   const userId = req.user.id;
 
-  const blockedUser = await prisma.$queryRaw`
-  SELECT id
-  FROM host_blocked_users
-  WHERE host_id = ${listing.host_id}
-    AND user_id = ${userId}
-  LIMIT 1
-`;
+  const blockedUser = await prisma.hostBlockedUser.findUnique({
+  where: {
+    host_id_user_id: {
+      host_id: listing.host_id,
+      user_id: userId,
+    },
+  },
+  select: { id: true },
+});
 
-  if (blockedUser.length > 0) {
-    return res.status(403).json({
-      success: false,
-      message: "You are blocked by this host and cannot book this listing.",
-    });
-  }
+if (blockedUser) {
+  return res.status(403).json({
+    success: false,
+    message: "You are blocked by this host and cannot book this listing.",
+  });
+}
 
   // Validate dates
   const checkInDate = new Date(check_in);
