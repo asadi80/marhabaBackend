@@ -1,39 +1,88 @@
 const express = require("express");
+
 const router = express.Router();
+
 const listingController = require("../controllers/listingController");
+
 const { protect, isHost } = require("../middleware/auth");
+
 const {
   listingValidators,
   commonValidators,
   handleValidationErrors,
 } = require("../middleware/validation");
-const { listingLimiter } = require("../middleware/rateLimiter");
 
-// Public routes
-router.get("/", listingController.getListings);
+
+// ============================================================
+// PUBLIC ROUTES
+// ============================================================
+
+// GET /api/v1/listings
+router.get(
+  "/",
+  listingController.getListings
+);
+
+
+// ============================================================
+// GET NEARBY LISTINGS
+// IMPORTANT: MUST COME BEFORE /:id
+// GET /api/v1/listings/nearby
+// ============================================================
+
+router.get(
+  "/nearby",
+  listingController.getNearbyListings
+);
+
+
+// ============================================================
+// GET USER LISTING
+// GET /api/v1/listings/user/:id
+// ============================================================
+
 router.get(
   "/user/:id",
   commonValidators.id(),
   handleValidationErrors,
-  listingController.getListingForUser,
+  listingController.getListingForUser
 );
+
+
+// ============================================================
+// GET HOST LISTINGS
+// GET /api/v1/listings/host/:hostId
+// ============================================================
+
 router.get(
   "/host/:hostId",
   commonValidators.id("hostId"),
   handleValidationErrors,
-  listingController.getHostListings,
+  listingController.getHostListings
 );
 
-// Protected routes
+
+// ============================================================
+// GET SINGLE LISTING
+// GET /api/v1/listings/:id
+// PUBLIC
+// ============================================================
 
 router.get(
   "/:id",
-   protect,
-  isHost,
   commonValidators.id(),
   handleValidationErrors,
-  listingController.getListing,
+  listingController.getListing
 );
+
+
+// ============================================================
+// PROTECTED ROUTES — HOST ONLY
+// ============================================================
+
+
+// CREATE LISTING
+// POST /api/v1/listings
 
 router.post(
   "/",
@@ -41,8 +90,12 @@ router.post(
   isHost,
   listingValidators.create,
   handleValidationErrors,
-  listingController.createListing,
+  listingController.createListing
 );
+
+
+// UPDATE LISTING
+// PUT /api/v1/listings/:id
 
 router.put(
   "/:id",
@@ -51,8 +104,12 @@ router.put(
   commonValidators.id(),
   listingValidators.update,
   handleValidationErrors,
-  listingController.updateListing,
+  listingController.updateListing
 );
+
+
+// UPDATE BLOCKED DATES
+// PATCH /api/v1/listings/:id/blocked-dates
 
 router.patch(
   "/:id/blocked-dates",
@@ -64,6 +121,10 @@ router.patch(
   listingController.updateBlockedDates
 );
 
+
+// DELETE SPECIFIC BLOCKED DATE
+// DELETE /api/v1/listings/:listingId/blocked-dates/:blockedDateId
+
 router.delete(
   "/:listingId/blocked-dates/:blockedDateId",
   protect,
@@ -73,14 +134,21 @@ router.delete(
 );
 
 
+// DELETE LISTING
+// DELETE /api/v1/listings/:id
+
 router.delete(
   "/:id",
   protect,
   isHost,
   commonValidators.id(),
   handleValidationErrors,
-  listingController.deleteListing,
+  listingController.deleteListing
 );
+
+
+// TOGGLE LISTING ACTIVE
+// PATCH /api/v1/listings/:id/toggle-active
 
 router.patch(
   "/:id/toggle-active",
@@ -89,23 +157,19 @@ router.patch(
   commonValidators.id(),
   listingValidators.update,
   handleValidationErrors,
-  listingController.toggleListingActive,
+  listingController.toggleListingActive
 );
+
+
+// INCREMENT VIEW COUNT
+// POST /api/v1/listings/:id/view
 
 router.post(
   "/:id/view",
-   commonValidators.id(),
+  commonValidators.id(),
   handleValidationErrors,
   listingController.incrementListingView
 );
 
-router.get(
-  "/nearby",
-  listingController.getNearbyListings
-);
-router.get(
-  "/:id",
-  listingController.getListing
-);
 
 module.exports = router;
