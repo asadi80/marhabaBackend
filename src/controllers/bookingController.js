@@ -76,21 +76,21 @@ const createBooking = asyncHandler(async (req, res) => {
   const userId = req.user.id;
 
   const blockedUser = await prisma.hostBlockedUser.findUnique({
-  where: {
-    host_id_user_id: {
-      host_id: listing.host_id,
-      user_id: userId,
+    where: {
+      host_id_user_id: {
+        host_id: listing.host_id,
+        user_id: userId,
+      },
     },
-  },
-  select: { id: true },
-});
-
-if (blockedUser) {
-  return res.status(403).json({
-    success: false,
-    message: "You are blocked by this host and cannot book this listing.",
+    select: { id: true },
   });
-}
+
+  if (blockedUser) {
+    return res.status(403).json({
+      success: false,
+      message: "You are blocked by this host and cannot book this listing.",
+    });
+  }
 
   // Validate dates
   const checkInDate = new Date(check_in);
@@ -223,8 +223,9 @@ if (blockedUser) {
   });
 
   // Send booking notification email
+  // Send booking request email to the guest
   try {
-    await emailService.sendBookingConfirmationEmail(
+    const emailResult = await emailService.sendBookingCreatedEmail(
       req.user.email,
       req.user.name,
       {
@@ -236,8 +237,18 @@ if (blockedUser) {
         totalPrice,
       },
     );
+
+    if (emailResult?.success) {
+      console.log(`📧 Booking created email sent: ${req.user.email}`);
+    } else {
+      console.error(
+        `❌ Booking created email failed:`,
+        emailResult?.error || emailResult,
+      );
+    }
   } catch (error) {
-    console.error("Failed to send booking confirmation email:", error);
+    // Email errors must NOT break booking creation
+    console.error("❌ Failed to send booking created email:", error);
   }
 
   // Clear booking cache

@@ -1689,8 +1689,6 @@ ${appUrl}/host-dashboard
     });
   }
 
-
-
   /**
    * Send booking status change email to the guest
    */
@@ -2003,7 +2001,203 @@ ${reason ? `السبب: ${reason}` : ""}
     });
   }
 
+  /**
+   * Send "booking created / pending host confirmation" email to the guest
+   */
+  async sendBookingCreatedEmail(email, name, booking) {
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
 
+    const checkIn = this.formatDateForEmail(booking.checkIn);
+    const checkOut = this.formatDateForEmail(booking.checkOut);
+
+    const emailHtml = `
+<div style="
+  font-family: Arial, 'Cairo', 'Tajawal', sans-serif;
+  max-width: 600px;
+  margin: auto;
+  padding: 20px;
+  background: #f7f6f2;
+">
+
+  <!-- Logo -->
+  <div style="text-align: center; margin-bottom: 25px;">
+    <h1 style="color: #1a1a2e;">
+      مر<span style="color: #e8c547;">حبا</span>
+    </h1>
+  </div>
+
+  <!-- English -->
+  <div style="margin-bottom: 30px;">
+
+    <h2 style="color: #4F46E5;">
+      📩 Booking Request Received
+    </h2>
+
+    <p>Dear ${name},</p>
+
+    <p>
+      Thank you for your booking request. Your request has been sent to the host
+      and is currently <strong>pending confirmation</strong>.
+    </p>
+
+    <div style="
+      background: #EEF2FF;
+      padding: 20px;
+      border-radius: 12px;
+      margin: 20px 0;
+    ">
+      <h3 style="margin-top: 0;">📋 Booking Details</h3>
+
+      <p><strong>Booking ID:</strong> ${booking.id}</p>
+      <p><strong>Property:</strong> ${booking.listingTitle}</p>
+      <p><strong>Check-in:</strong> ${checkIn}</p>
+      <p><strong>Check-out:</strong> ${checkOut}</p>
+      <p><strong>Guests:</strong> ${booking.guests}</p>
+      <p><strong>Total price:</strong> ${booking.totalPrice} LYD</p>
+      <p>
+        <strong>Status:</strong>
+        <span style="color: #F59E0B;">PENDING</span>
+      </p>
+    </div>
+
+    <p>
+      You will receive another email as soon as the host confirms or declines
+      your request. If the host does not respond within 24 hours, feel free to
+      contact support.
+    </p>
+
+    <div style="text-align: center; margin: 25px 0;">
+      <a
+        href="${appUrl}/user-dashboard"
+        style="
+          background-color: #4F46E5;
+          color: white;
+          padding: 12px 24px;
+          text-decoration: none;
+          border-radius: 6px;
+          display: inline-block;
+        "
+      >
+        View My Bookings →
+      </a>
+    </div>
+
+    <p>
+      Best regards,<br>
+      Marhaba Team
+    </p>
+  </div>
+
+  <div style="border-top: 2px solid #e5e7eb; margin: 25px 0;"></div>
+
+  <!-- Arabic -->
+  <div style="direction: rtl; text-align: right;">
+
+    <h2 style="color: #4F46E5;">
+      📩 تم استلام طلب الحجز
+    </h2>
+
+    <p>عزيزي ${name}،</p>
+
+    <p>
+      شكراً لإرسال طلب الحجز. تم إرسال طلبك إلى المضيف وهو حالياً
+      <strong>في انتظار التأكيد</strong>.
+    </p>
+
+    <div style="
+      background: #EEF2FF;
+      padding: 20px;
+      border-radius: 12px;
+      margin: 20px 0;
+    ">
+      <h3 style="margin-top: 0;">📋 تفاصيل الحجز</h3>
+
+      <p><strong>رقم الحجز:</strong> ${booking.id}</p>
+      <p><strong>العقار:</strong> ${booking.listingTitle}</p>
+      <p><strong>تاريخ الوصول:</strong> ${checkIn}</p>
+      <p><strong>تاريخ المغادرة:</strong> ${checkOut}</p>
+      <p><strong>عدد الضيوف:</strong> ${booking.guests}</p>
+      <p><strong>السعر الإجمالي:</strong> ${booking.totalPrice} دينار</p>
+      <p>
+        <strong>الحالة:</strong>
+        <span style="color: #F59E0B;">قيد الانتظار</span>
+      </p>
+    </div>
+
+    <p>
+      ستصلك رسالة أخرى بمجرد تأكيد المضيف أو رفضه لطلبك. إذا لم يرد المضيف
+      خلال 24 ساعة، يمكنك التواصل مع الدعم.
+    </p>
+
+    <div style="text-align: center; margin: 25px 0;">
+      <a
+        href="${appUrl}/user-dashboard"
+        style="
+          background-color: #4F46E5;
+          color: white;
+          padding: 12px 24px;
+          text-decoration: none;
+          border-radius: 6px;
+          display: inline-block;
+        "
+      >
+        عرض حجوزاتي ←
+      </a>
+    </div>
+
+    <p>
+      مع أطيب التحيات،<br>
+      فريق مرحبا
+    </p>
+  </div>
+
+</div>
+  `;
+
+    const text = `
+Dear ${name},
+
+Thank you for your booking request. Your request has been sent to the host
+and is currently pending confirmation.
+
+Booking Details:
+Booking ID: ${booking.id}
+Property: ${booking.listingTitle}
+Check-in: ${checkIn}
+Check-out: ${checkOut}
+Guests: ${booking.guests}
+Total price: ${booking.totalPrice} LYD
+Status: PENDING
+
+Best regards,
+Marhaba Team
+
+---
+
+عزيزي ${name}،
+
+شكراً لإرسال طلب الحجز. تم إرسال طلبك إلى المضيف وهو حالياً في انتظار التأكيد.
+
+تفاصيل الحجز:
+رقم الحجز: ${booking.id}
+العقار: ${booking.listingTitle}
+تاريخ الوصول: ${checkIn}
+تاريخ المغادرة: ${checkOut}
+عدد الضيوف: ${booking.guests}
+السعر الإجمالي: ${booking.totalPrice} دينار
+الحالة: قيد الانتظار
+
+مع أطيب التحيات،
+فريق مرحبا
+`;
+
+    return this.sendEmail({
+      to: email,
+      subject: `Booking Request Received / تم استلام طلب الحجز - Marhaba`,
+      text,
+      html: emailHtml,
+    });
+  }
 }
 
 module.exports = new EmailService();
