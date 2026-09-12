@@ -222,10 +222,14 @@ const createBooking = asyncHandler(async (req, res) => {
     },
   });
 
-  // Send booking notification email
-  // Send booking request email to the guest
+  // ============================================================
+  // SEND NOTIFICATION EMAILS (guest + host)
+  // Emails must NEVER break booking creation.
+  // ============================================================
+
+  // 1. Notify the guest
   try {
-    const emailResult = await emailService.sendBookingCreatedEmail(
+    const guestEmail = await emailService.sendBookingCreatedEmail(
       req.user.email,
       req.user.name,
       {
@@ -238,17 +242,51 @@ const createBooking = asyncHandler(async (req, res) => {
       },
     );
 
-    if (emailResult?.success) {
-      console.log(`📧 Booking created email sent: ${req.user.email}`);
+    if (guestEmail?.success) {
+      console.log(`📧 Booking created email sent to guest: ${req.user.email}`);
     } else {
       console.error(
-        `❌ Booking created email failed:`,
-        emailResult?.error || emailResult,
+        `❌ Booking created email to guest failed:`,
+        guestEmail?.error || guestEmail,
       );
     }
   } catch (error) {
-    // Email errors must NOT break booking creation
-    console.error("❌ Failed to send booking created email:", error);
+    console.error("❌ Guest booking email threw:", error);
+  }
+
+  // 2. Notify the host (listing.host is already included above)
+  try {
+    if (listing.host?.email) {
+      const hostEmail = await emailService.sendHostNewBookingEmail(
+        listing.host.email,
+        listing.host.name,
+        {
+          id: booking.id,
+          listingTitle: listing.title,
+          guestName: req.user.name,
+          guestEmail: req.user.email,
+          checkIn: checkInDate,
+          checkOut: checkOutDate,
+          guests,
+          totalPrice,
+        },
+      );
+
+      if (hostEmail?.success) {
+        console.log(`📧 New booking email sent to host: ${listing.host.email}`);
+      } else {
+        console.error(
+          `❌ New booking email to host failed:`,
+          hostEmail?.error || hostEmail,
+        );
+      }
+    } else {
+      console.log(
+        `⚠️ Host has no email address — skipping host notification (host_id: ${listing.host_id})`,
+      );
+    }
+  } catch (error) {
+    console.error("❌ Host booking email threw:", error);
   }
 
   // Clear booking cache
