@@ -8,6 +8,6 @@ const statsController = require("../controllers/statsController");
 // GET SIMPLE PLATFORM STATISTICS
 // GET /api/v1/stats/stats
 // ============================================================
-router.get("/stats", statsController.getSimpleStats);
+router.get("/simple", statsController.getSimpleStats);
 
 module.exports = router;
