@@ -5,7 +5,6 @@ const { redisHelpers } = require("../config/redis");
 const { asyncHandler } = require("../middleware/errorHandler");
 const { paginate, paginationMeta } = require("../utils/helpers");
 
-
 // ============================================================
 // HAVERSINE DISTANCE
 // Calculate distance between two coordinates in kilometers
@@ -31,7 +30,7 @@ function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return R * c;
-};
+}
 
 // @desc    Create listing
 // @route   POST /api/v1/listings
@@ -114,7 +113,7 @@ const createListing = asyncHandler(async (req, res) => {
           name: true,
           email: true,
           phone_number: true,
-           host_details: true,
+          host_details: true,
         },
       },
     },
@@ -757,7 +756,6 @@ const toggleListingActive = asyncHandler(async (req, res) => {
   });
 });
 
-
 const getListingForUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -821,15 +819,9 @@ const getListingForUser = asyncHandler(async (req, res) => {
   const responseListing = {
     ...listing,
 
-    latitude:
-      listing.latitude !== null
-        ? Number(listing.latitude)
-        : null,
+    latitude: listing.latitude !== null ? Number(listing.latitude) : null,
 
-    longitude:
-      listing.longitude !== null
-        ? Number(listing.longitude)
-        : null,
+    longitude: listing.longitude !== null ? Number(listing.longitude) : null,
 
     // Frontend-friendly coordinates
     coordinates:
@@ -923,14 +915,10 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
     const startDate = item.startDate;
     const endDate = item.endDate;
 
-    if (
-      typeof startDate !== "string" ||
-      typeof endDate !== "string"
-    ) {
+    if (typeof startDate !== "string" || typeof endDate !== "string") {
       return res.status(400).json({
         success: false,
-        message:
-          "Each blocked date must contain startDate and endDate",
+        message: "Each blocked date must contain startDate and endDate",
         code: "INVALID_BLOCKED_DATE",
       });
     }
@@ -942,8 +930,7 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Dates must use YYYY-MM-DD format",
+        message: "Dates must use YYYY-MM-DD format",
         code: "INVALID_DATE_FORMAT",
       });
     }
@@ -952,10 +939,7 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
     const start = new Date(`${startDate}T00:00:00.000Z`);
     const end = new Date(`${endDate}T00:00:00.000Z`);
 
-    if (
-      Number.isNaN(start.getTime()) ||
-      Number.isNaN(end.getTime())
-    ) {
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
       return res.status(400).json({
         success: false,
         message: "Invalid blocked date",
@@ -966,33 +950,25 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
     if (start >= end) {
       return res.status(400).json({
         success: false,
-        message:
-          "endDate must be after startDate",
+        message: "endDate must be after startDate",
         code: "INVALID_DATE_RANGE",
       });
     }
 
     normalizedBlockedDates.push({
-      id:
-        typeof item.id === "string"
-          ? item.id
-          : crypto.randomUUID(),
+      id: typeof item.id === "string" ? item.id : crypto.randomUUID(),
 
       startDate,
       endDate,
 
       reason:
-        typeof item.reason === "string" &&
-        item.reason.trim()
+        typeof item.reason === "string" && item.reason.trim()
           ? item.reason.trim()
           : "Blocked by host",
     });
   }
 
-  console.log(
-    "📅 Normalized blocked dates:",
-    normalizedBlockedDates
-  );
+  console.log("📅 Normalized blocked dates:", normalizedBlockedDates);
 
   // =========================================================
   // GET CONFIRMED / CHECKED-IN BOOKINGS
@@ -1026,33 +1002,26 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
       Date.UTC(
         checkIn.getUTCFullYear(),
         checkIn.getUTCMonth(),
-        checkIn.getUTCDate()
-      )
+        checkIn.getUTCDate(),
+      ),
     );
 
     const checkout = new Date(
       Date.UTC(
         checkOut.getUTCFullYear(),
         checkOut.getUTCMonth(),
-        checkOut.getUTCDate()
-      )
+        checkOut.getUTCDate(),
+      ),
     );
 
     while (current < checkout) {
-      bookedDates.add(
-        current.toISOString().split("T")[0]
-      );
+      bookedDates.add(current.toISOString().split("T")[0]);
 
-      current.setUTCDate(
-        current.getUTCDate() + 1
-      );
+      current.setUTCDate(current.getUTCDate() + 1);
     }
   }
 
-  console.log(
-    "📅 Already booked dates:",
-    [...bookedDates]
-  );
+  console.log("📅 Already booked dates:", [...bookedDates]);
 
   // =========================================================
   // CHECK BLOCKED RANGES AGAINST BOOKINGS
@@ -1061,17 +1030,12 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
   const conflictingDates = [];
 
   for (const blocked of normalizedBlockedDates) {
-    let current = new Date(
-      `${blocked.startDate}T00:00:00.000Z`
-    );
+    let current = new Date(`${blocked.startDate}T00:00:00.000Z`);
 
-    const end = new Date(
-      `${blocked.endDate}T00:00:00.000Z`
-    );
+    const end = new Date(`${blocked.endDate}T00:00:00.000Z`);
 
     while (current < end) {
-      const dateString =
-        current.toISOString().split("T")[0];
+      const dateString = current.toISOString().split("T")[0];
 
       if (bookedDates.has(dateString)) {
         conflictingDates.push({
@@ -1083,9 +1047,7 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
         });
       }
 
-      current.setUTCDate(
-        current.getUTCDate() + 1
-      );
+      current.setUTCDate(current.getUTCDate() + 1);
     }
   }
 
@@ -1094,10 +1056,7 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
   // =========================================================
 
   if (conflictingDates.length > 0) {
-    console.log(
-      "❌ Blocked dates conflict with bookings:",
-      conflictingDates
-    );
+    console.log("❌ Blocked dates conflict with bookings:", conflictingDates);
 
     return res.status(400).json({
       success: false,
@@ -1112,27 +1071,23 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
   // SAVE TO DATABASE
   // =========================================================
 
-  console.log(
-    "💾 Saving blocked dates:",
-    normalizedBlockedDates
-  );
+  console.log("💾 Saving blocked dates:", normalizedBlockedDates);
 
-  const updatedListing =
-    await prisma.listing.update({
-      where: {
-        id,
-      },
+  const updatedListing = await prisma.listing.update({
+    where: {
+      id,
+    },
 
-      data: {
-        blocked_dates: normalizedBlockedDates,
-      },
+    data: {
+      blocked_dates: normalizedBlockedDates,
+    },
 
-      select: {
-        id: true,
-        blocked_dates: true,
-        updated_at: true,
-      },
-    });
+    select: {
+      id: true,
+      blocked_dates: true,
+      updated_at: true,
+    },
+  });
 
   // =========================================================
   // CLEAR CACHE
@@ -1140,15 +1095,10 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
 
   await redisHelpers.del(`listing:${id}`);
 
-  await redisHelpers.deletePattern(
-    "listings:*"
-  );
+  await redisHelpers.deletePattern("listings:*");
 
   console.log("✅ BLOCKED DATES SAVED");
-  console.log(
-    "📅 Saved:",
-    updatedListing.blocked_dates
-  );
+  console.log("📅 Saved:", updatedListing.blocked_dates);
 
   // =========================================================
   // RESPONSE
@@ -1157,21 +1107,16 @@ const updateBlockedDates = asyncHandler(async (req, res) => {
   return res.status(200).json({
     success: true,
 
-    message:
-      "Blocked dates updated successfully",
+    message: "Blocked dates updated successfully",
 
     data: {
       listing_id: updatedListing.id,
 
-      blocked_dates:
-        Array.isArray(
-          updatedListing.blocked_dates
-        )
-          ? updatedListing.blocked_dates
-          : [],
+      blocked_dates: Array.isArray(updatedListing.blocked_dates)
+        ? updatedListing.blocked_dates
+        : [],
 
-      updated_at:
-        updatedListing.updated_at,
+      updated_at: updatedListing.updated_at,
     },
   });
 });
@@ -1292,7 +1237,7 @@ const deleteBlockedDate = asyncHandler(async (req, res) => {
     (item) =>
       item &&
       typeof item === "object" &&
-      String(item.id) === String(blockedDateId)
+      String(item.id) === String(blockedDateId),
   );
 
   if (!blockedDate) {
@@ -1312,7 +1257,7 @@ const deleteBlockedDate = asyncHandler(async (req, res) => {
         item &&
         typeof item === "object" &&
         String(item.id) === String(blockedDateId)
-      )
+      ),
   );
 
   // Save
@@ -1335,10 +1280,7 @@ const deleteBlockedDate = asyncHandler(async (req, res) => {
   await redisHelpers.deletePattern("listings:*");
 
   console.log("✅ BLOCKED DATE DELETED");
-  console.log(
-    "📅 Remaining blocked dates:",
-    updatedListing.blocked_dates
-  );
+  console.log("📅 Remaining blocked dates:", updatedListing.blocked_dates);
 
   return res.status(200).json({
     success: true,
@@ -1442,9 +1384,7 @@ const getNearbyListings = asyncHandler(async (req, res) => {
     const cosLat = Math.cos((lat * Math.PI) / 180);
 
     const lngDelta =
-      safeRadius *
-      degreesPerKm /
-      Math.max(Math.abs(cosLat), 0.01);
+      (safeRadius * degreesPerKm) / Math.max(Math.abs(cosLat), 0.01);
 
     const latParam = paramIndex;
     const lngParam = paramIndex + 1;
@@ -1468,9 +1408,9 @@ const getNearbyListings = asyncHandler(async (req, res) => {
         u.name AS host_name,
         u.status AS host_status
 
-      FROM listings l
+      FROM "Listing" l
 
-      JOIN users u
+      JOIN "User" u
         ON l.host_id = u.id
 
       WHERE ${whereConditions}
@@ -1486,21 +1426,13 @@ const getNearbyListings = asyncHandler(async (req, res) => {
           $${lngParam}::float + $${lngDeltaParam}::float
     `;
 
-    queryParams.push(
-      lat,
-      lng,
-      latDelta,
-      lngDelta
-    );
+    queryParams.push(lat, lng, latDelta, lngDelta);
 
     // ========================================================
     // DATABASE QUERY
     // ========================================================
 
-    const result = await prisma.$queryRawUnsafe(
-      bboxQuery,
-      ...queryParams
-    );
+    const result = await prisma.$queryRawUnsafe(bboxQuery, ...queryParams);
 
     // ========================================================
     // CALCULATE EXACT DISTANCE
@@ -1515,26 +1447,19 @@ const getNearbyListings = asyncHandler(async (req, res) => {
           lat,
           lng,
           listingLat,
-          listingLng
+          listingLng,
         );
 
         return {
           ...listing,
 
-          distance_km:
-            Math.round(distance * 10) / 10,
+          distance_km: Math.round(distance * 10) / 10,
         };
       })
 
-      .filter(
-        (listing) =>
-          listing.distance_km <= safeRadius
-      )
+      .filter((listing) => listing.distance_km <= safeRadius)
 
-      .sort(
-        (a, b) =>
-          a.distance_km - b.distance_km
-      )
+      .sort((a, b) => a.distance_km - b.distance_km)
 
       .slice(0, safeLimit);
 
@@ -1542,56 +1467,37 @@ const getNearbyListings = asyncHandler(async (req, res) => {
     // FORMAT RESPONSE
     // ========================================================
 
-    const formattedListings = listings.map(
-      (listing) => ({
-        id: listing.id,
+    const formattedListings = listings.map((listing) => ({
+      id: listing.id,
 
-        title: listing.title,
+      title: listing.title,
 
-        description:
-          listing.description,
+      description: listing.description,
 
-        price: listing.price,
+      price: listing.price,
 
-        location:
-          listing.location,
+      location: listing.location,
 
-        coordinates: {
-          lat: parseFloat(
-            listing.latitude
-          ),
+      coordinates: {
+        lat: parseFloat(listing.latitude),
 
-          lng: parseFloat(
-            listing.longitude
-          ),
-        },
+        lng: parseFloat(listing.longitude),
+      },
 
-        images:
-          Array.isArray(listing.images)
-            ? listing.images
-            : [],
+      images: Array.isArray(listing.images) ? listing.images : [],
 
-        category:
-          listing.category,
+      category: listing.category,
 
-        amenities:
-          Array.isArray(listing.amenities)
-            ? listing.amenities
-            : [],
+      amenities: Array.isArray(listing.amenities) ? listing.amenities : [],
 
-        createdAt:
-          listing.created_at,
+      createdAt: listing.created_at,
 
-        hostName:
-          listing.host_name,
+      hostName: listing.host_name,
 
-        hostStatus:
-          listing.host_status,
+      hostStatus: listing.host_status,
 
-        distance:
-          listing.distance_km,
-      })
-    );
+      distance: listing.distance_km,
+    }));
 
     // ========================================================
     // RESPONSE
@@ -1607,36 +1513,26 @@ const getNearbyListings = asyncHandler(async (req, res) => {
 
       radius: safeRadius,
 
-      count:
-        formattedListings.length,
+      count: formattedListings.length,
 
-      listings:
-        formattedListings,
+      listings: formattedListings,
 
       filters: {
-        category:
-          category || "all",
+        category: category || "all",
 
-        limit:
-          safeLimit,
+        limit: safeLimit,
       },
     });
   } catch (error) {
-    console.error(
-      "❌ Nearby listings error:",
-      error
-    );
+    console.error("❌ Nearby listings error:", error);
 
     return res.status(500).json({
       success: false,
 
-      error:
-        "Internal server error",
+      error: "Internal server error",
 
       message:
-        process.env.NODE_ENV === "development"
-          ? error.message
-          : undefined,
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 });
@@ -1653,5 +1549,5 @@ module.exports = {
   updateBlockedDates,
   incrementListingView,
   deleteBlockedDate,
-  getNearbyListings
+  getNearbyListings,
 };
