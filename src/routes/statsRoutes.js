@@ -10,4 +10,11 @@ const statsController = require("../controllers/statsController");
 // ============================================================
 router.get("/simple", statsController.getSimpleStats);
 
+router.get("/test", (req, res) => {
+  res.json({
+    success: true,
+    message: "Stats route is working",
+  });
+});
+
 module.exports = router;

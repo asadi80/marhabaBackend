@@ -9,47 +9,50 @@ const getSimpleStats = asyncHandler(async (req, res) => {
   try {
     const result = await prisma.$queryRaw`
       SELECT
-        (SELECT COUNT(*) FROM users) AS total_users,
+        (
+          SELECT COUNT(*)
+          FROM "User"
+        ) AS total_users,
 
         (
           SELECT COUNT(*)
-          FROM users
+          FROM "User"
           WHERE role = 'host'
         ) AS total_hosts,
 
         (
           SELECT COUNT(*)
-          FROM users
+          FROM "User"
           WHERE role = 'host'
             AND status = 'confirmed'
             AND EXISTS (
               SELECT 1
-              FROM listings
-              WHERE listings.host_id = users.id
-                AND listings.status = 'active'
+              FROM "Listing"
+              WHERE "Listing".host_id = "User".id
+                AND "Listing".status = 'active'
             )
         ) AS active_hosts,
 
         (
           SELECT COUNT(*)
-          FROM listings
+          FROM "Listing"
           WHERE status = 'active'
         ) AS total_listings,
 
         (
           SELECT COUNT(*)
-          FROM bookings
+          FROM "Booking"
         ) AS total_bookings,
 
         (
           SELECT COUNT(*)
-          FROM bookings
+          FROM "Booking"
           WHERE status = 'confirmed'
         ) AS confirmed_bookings,
 
         (
           SELECT COUNT(DISTINCT user_id)
-          FROM bookings
+          FROM "Booking"
           WHERE status = 'confirmed'
         ) AS total_travelers
     `;
