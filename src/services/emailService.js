@@ -96,7 +96,7 @@ class EmailService {
 
   async sendVerificationEmail(email, name, token) {
     const backendUrl = process.env.BACKEND_URL || "https://api.mar-haba.ly";
-    const verificationUrl = `${frontendUrl}/api/v1/auth/verify-email?token=${token}`;
+    const verificationUrl = `${backendUrl}/api/v1/auth/verify-email?token=${token}`;
 
     const emailHtml = `
 <div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px;">
