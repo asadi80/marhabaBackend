@@ -1,4 +1,4 @@
-//src/middleware/auth
+//backend/src/middleware/auth
 const authService = require('../services/authService');
 const { prisma } = require('../config/database');
 
@@ -18,12 +18,36 @@ const protect = async (req, res, next) => {
   }
 
   try {
-    const decoded = authService.verifyToken(token);
+    // SECURITY: explicitly require this to be an access token. Without
+    // this, a refresh token (or, before the fix, a token signed with a
+    // fallback shared secret) could be used directly as a Bearer token.
+    const decoded = authService.verifyToken(token, 'access');
+
     if (!decoded) {
       return res.status(401).json({
         success: false,
         message: 'Invalid or expired token',
       });
+    }
+
+    // SECURITY: this is the important addition. Previously a valid JWT
+    // signature was treated as sufficient — logout, password change, and
+    // session revocation never actually invalidated an access token, so
+    // a stolen token kept working for its full lifetime regardless.
+    // Now we confirm the specific session the token was issued for is
+    // still active before trusting it.
+    if (decoded.sessionId) {
+      const session = await prisma.userSession.findUnique({
+        where: { id: decoded.sessionId },
+        select: { is_active: true, user_id: true },
+      });
+
+      if (!session || !session.is_active || session.user_id !== decoded.id) {
+        return res.status(401).json({
+          success: false,
+          message: 'Session has been revoked. Please log in again.',
+        });
+      }
     }
 
     const user = await prisma.user.findUnique({
@@ -53,6 +77,7 @@ const protect = async (req, res, next) => {
     }
 
     req.user = user;
+    req.sessionId = decoded.sessionId; // handy for logout(userId, req.sessionId)
     next();
   } catch (error) {
     return res.status(401).json({
@@ -65,6 +90,17 @@ const protect = async (req, res, next) => {
 // Restrict to specific roles
 const authorize = (...roles) => {
   return (req, res, next) => {
+    // Defensive check: authorize() should always run after protect(),
+    // but if it's ever mounted without protect() this avoids a crash
+    // (`Cannot read properties of undefined`) that could otherwise
+    // produce a confusing 500 instead of a clean 401.
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized to access this route',
+      });
+    }
+
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,
@@ -77,7 +113,7 @@ const authorize = (...roles) => {
 
 // Check if user is verified (email verified)
 const isVerified = (req, res, next) => {
-  if (!req.user.email_verified) {
+  if (!req.user?.email_verified) {
     return res.status(403).json({
       success: false,
       message: 'Please verify your email first',
@@ -88,7 +124,7 @@ const isVerified = (req, res, next) => {
 
 // Check if user is host
 const isHost = (req, res, next) => {
-  if (req.user.role !== 'host' && req.user.role !== 'admin') {
+  if (req.user?.role !== 'host' && req.user?.role !== 'admin') {
     return res.status(403).json({
       success: false,
       message: 'Host account required for this action',
