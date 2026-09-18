@@ -33,12 +33,11 @@ app.use(
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin
-    // (Postman, curl, mobile apps, server-to-server, etc.)
+    // Postman, curl, mobile apps, server-to-server, etc.
     if (!origin) {
       return callback(null, true);
     }
 
-    // Allow ALL localhost and 127.0.0.1 ports
     const isLocalhost =
       /^http:\/\/localhost(:\d+)?$/.test(origin) ||
       /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
@@ -46,6 +45,7 @@ const corsOptions = {
     const allowedOrigins = [
       "https://mar-haba.ly",
       "https://www.mar-haba.ly",
+      "https://dashboard.mar-haba.ly",
       process.env.FRONTEND_URL,
     ].filter(Boolean);
 
@@ -60,10 +60,21 @@ const corsOptions = {
 
   credentials: true,
 
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  methods: [
+    "GET",
+    "POST",
+    "PUT",
+    "DELETE",
+    "PATCH",
+    "OPTIONS",
+  ],
 
   allowedHeaders: [
-    ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "Accept",
+    "Origin",
   ],
 
   optionsSuccessStatus: 204,
