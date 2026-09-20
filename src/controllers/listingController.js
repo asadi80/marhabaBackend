@@ -251,21 +251,80 @@ const getListings = asyncHandler(async (req, res) => {
 const getListing = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
+  // ------------------------------------------------------------
+  // NORMALIZER
+  // Turns the raw Prisma row into the shape the React client
+  // expects. Kept inline so this function is a single unit.
+  // ------------------------------------------------------------
+  const normalize = (row, viewCountOverride) => {
+    if (!row) return row;
+
+    const {
+      host,
+      latitude,
+      longitude,
+      blocked_dates,
+      view_count,
+      ...rest
+    } = row;
+
+    return {
+      ...rest,
+
+      // Prisma Decimal → number
+      latitude:
+        latitude !== null && latitude !== undefined
+          ? Number(latitude)
+          : null,
+      longitude:
+        longitude !== null && longitude !== undefined
+          ? Number(longitude)
+          : null,
+
+      // Convenience for the map component
+      coordinates:
+        latitude !== null &&
+        latitude !== undefined &&
+        longitude !== null &&
+        longitude !== undefined
+          ? { lat: Number(latitude), lng: Number(longitude) }
+          : null,
+
+      // Always an array
+      blocked_dates: Array.isArray(blocked_dates) ? blocked_dates : [],
+
+      // View count may have just been incremented
+      view_count: viewCountOverride ?? view_count ?? 0,
+
+      // Frontend reads host.hostDetails (camelCase).
+      host: host
+        ? {
+            ...host,
+            hostDetails: host.host_details ?? null,
+            host_details: host.host_details ?? null,
+          }
+        : null,
+    };
+  };
+
+  // ------------------------------------------------------------
+  // TRY CACHE
+  // ------------------------------------------------------------
   const cacheKey = `listing:${id}`;
   const cachedListing = await redisHelpers.get(cacheKey);
 
   if (cachedListing) {
-    // Bump the counter in DB, then return the cached object with an
-    // up-to-date view_count so the client doesn't see a stale number.
-    await prisma.listing.update({
+    // Bump the counter in DB
+    const updated = await prisma.listing.update({
       where: { id },
       data: { view_count: { increment: 1 } },
+      select: { view_count: true },
     });
 
-    const nextViewCount = (cachedListing.view_count ?? 0) + 1;
+    // Patch the cached copy so the client sees a fresh number
+    const patched = normalize(cachedListing, updated.view_count);
 
-    // Keep the cache in sync so the next cached read is also correct.
-    const patched = { ...cachedListing, view_count: nextViewCount };
+    // Write the patched version back so subsequent cache hits are correct
     await redisHelpers.set(cacheKey, patched, 300);
 
     return res.status(200).json({
@@ -274,13 +333,17 @@ const getListing = asyncHandler(async (req, res) => {
     });
   }
 
+  // ------------------------------------------------------------
+  // FETCH FROM DB
+  // ------------------------------------------------------------
   const listing = await prisma.listing.findUnique({
     where: { id },
     include: {
       host: {
         select: {
-          // ✅ FIX: id_images removed — field does not exist on User model.
-          // Only send public host info on a public endpoint.
+          // NOTE: id_images intentionally NOT selected — it does not
+          // exist on the User model and also should not be exposed on
+          // a public endpoint.
           id: true,
           name: true,
           email: true,
@@ -291,6 +354,9 @@ const getListing = asyncHandler(async (req, res) => {
       },
       bookings: {
         where: {
+          // Confirmed + checked-in bookings block dates.
+          // (Pending bookings are intentionally excluded — they don't
+          //  hold the calendar until approved.)
           status: { in: ["confirmed", "checked_in"] },
         },
         select: {
@@ -309,21 +375,21 @@ const getListing = asyncHandler(async (req, res) => {
     });
   }
 
-  // Increment view count
+  // ------------------------------------------------------------
+  // INCREMENT VIEW COUNT
+  // ------------------------------------------------------------
   const updated = await prisma.listing.update({
     where: { id },
     data: { view_count: { increment: 1 } },
     select: { view_count: true },
   });
 
-  const normalized = normalizeListingForClient({
-    ...listing,
-    view_count: updated.view_count,
-  });
+  const normalized = normalize(listing, updated.view_count);
 
+  // Cache for 5 minutes
   await redisHelpers.set(cacheKey, normalized, 300);
 
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     data: normalized,
   });
