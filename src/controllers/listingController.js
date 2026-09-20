@@ -251,20 +251,26 @@ const getListings = asyncHandler(async (req, res) => {
 const getListing = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  // Try cache
   const cacheKey = `listing:${id}`;
   const cachedListing = await redisHelpers.get(cacheKey);
 
   if (cachedListing) {
-    // Increment view count asynchronously
+    // Bump the counter in DB, then return the cached object with an
+    // up-to-date view_count so the client doesn't see a stale number.
     await prisma.listing.update({
       where: { id },
       data: { view_count: { increment: 1 } },
     });
 
+    const nextViewCount = (cachedListing.view_count ?? 0) + 1;
+
+    // Keep the cache in sync so the next cached read is also correct.
+    const patched = { ...cachedListing, view_count: nextViewCount };
+    await redisHelpers.set(cacheKey, patched, 300);
+
     return res.status(200).json({
       success: true,
-      data: cachedListing,
+      data: patched,
     });
   }
 
@@ -273,12 +279,13 @@ const getListing = asyncHandler(async (req, res) => {
     include: {
       host: {
         select: {
+          // ✅ FIX: id_images removed — field does not exist on User model.
+          // Only send public host info on a public endpoint.
           id: true,
           name: true,
           email: true,
           phone_number: true,
           host_details: true,
-          id_images: true,
           created_at: true,
         },
       },
@@ -289,6 +296,7 @@ const getListing = asyncHandler(async (req, res) => {
         select: {
           check_in: true,
           check_out: true,
+          status: true,
         },
       },
     },
@@ -302,17 +310,22 @@ const getListing = asyncHandler(async (req, res) => {
   }
 
   // Increment view count
-  await prisma.listing.update({
+  const updated = await prisma.listing.update({
     where: { id },
     data: { view_count: { increment: 1 } },
+    select: { view_count: true },
   });
 
-  // Cache for 5 minutes
-  await redisHelpers.set(cacheKey, listing, 300);
+  const normalized = normalizeListingForClient({
+    ...listing,
+    view_count: updated.view_count,
+  });
+
+  await redisHelpers.set(cacheKey, normalized, 300);
 
   res.status(200).json({
     success: true,
-    data: listing,
+    data: normalized,
   });
 });
 
