@@ -745,6 +745,7 @@ const getHostListings = asyncHandler(async (req, res) => {
             name: true,
             email: true,
             phone_number: true,
+            status: true,
             host_details: true,
           },
         },
