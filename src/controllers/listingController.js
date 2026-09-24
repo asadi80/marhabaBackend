@@ -145,14 +145,20 @@ const createListing = asyncHandler(async (req, res) => {
 // @desc    Get all listings
 // @route   GET /api/v1/listings
 // @access  Public
+
 const getListings = asyncHandler(async (req, res) => {
   const { page, limit } = paginate(req.query.page, req.query.limit);
   const { search, category, minPrice, maxPrice, location, sort } = req.query;
 
-  // Build filter
+  // Only publicly show active listings from approved/confirmed hosts
   const where = {
     status: "active",
     is_active: true,
+
+    // Host must be approved
+    host: {
+      status: "confirmed",
+    },
   };
 
   if (category) {
@@ -161,8 +167,14 @@ const getListings = asyncHandler(async (req, res) => {
 
   if (minPrice || maxPrice) {
     where.price = {};
-    if (minPrice) where.price.gte = parseFloat(minPrice);
-    if (maxPrice) where.price.lte = parseFloat(maxPrice);
+
+    if (minPrice) {
+      where.price.gte = parseFloat(minPrice);
+    }
+
+    if (maxPrice) {
+      where.price.lte = parseFloat(maxPrice);
+    }
   }
 
   if (location) {
@@ -174,21 +186,62 @@ const getListings = asyncHandler(async (req, res) => {
 
   if (search) {
     where.OR = [
-      { title: { contains: search, mode: "insensitive" } },
-      { description: { contains: search, mode: "insensitive" } },
-      { location: { contains: search, mode: "insensitive" } },
+      {
+        title: {
+          contains: search,
+          mode: "insensitive",
+        },
+      },
+      {
+        description: {
+          contains: search,
+          mode: "insensitive",
+        },
+      },
+      {
+        location: {
+          contains: location,
+          mode: "insensitive",
+        },
+      },
     ];
   }
 
   // Build sort
-  let orderBy = { created_at: "desc" };
-  if (sort === "price_asc") orderBy = { price: "asc" };
-  if (sort === "price_desc") orderBy = { price: "desc" };
-  if (sort === "rating")
-    orderBy = { host: { host_details: { rating: "desc" } } };
+  let orderBy = {
+    created_at: "desc",
+  };
 
-  // Try cache
-  const cacheKey = `listings:${JSON.stringify({ where, orderBy, skip: paginate.skip, take: paginate.take })}`;
+  if (sort === "price_asc") {
+    orderBy = {
+      price: "asc",
+    };
+  }
+
+  if (sort === "price_desc") {
+    orderBy = {
+      price: "desc",
+    };
+  }
+
+  if (sort === "rating") {
+    orderBy = {
+      host: {
+        host_details: {
+          rating: "desc",
+        },
+      },
+    };
+  }
+
+  // Cache key includes the host approval filter
+  const cacheKey = `listings:${JSON.stringify({
+    where,
+    orderBy,
+    skip: paginate.skip,
+    take: paginate.take,
+  })}`;
+
   const cachedListings = await redisHelpers.get(cacheKey);
 
   if (cachedListings) {
@@ -205,6 +258,7 @@ const getListings = asyncHandler(async (req, res) => {
       orderBy,
       skip: paginate.skip,
       take: paginate.take,
+
       include: {
         host: {
           select: {
@@ -216,9 +270,12 @@ const getListings = asyncHandler(async (req, res) => {
             host_details: true,
           },
         },
+
         bookings: {
           where: {
-            status: { in: ["confirmed", "checked_in"] },
+            status: {
+              in: ["confirmed", "checked_in"],
+            },
           },
           select: {
             check_in: true,
@@ -227,10 +284,17 @@ const getListings = asyncHandler(async (req, res) => {
         },
       },
     }),
-    prisma.listing.count({ where }),
+
+    prisma.listing.count({
+      where,
+    }),
   ]);
 
-  const meta = paginationMeta(total, paginate.page, paginate.limit);
+  const meta = paginationMeta(
+    total,
+    paginate.page,
+    paginate.limit
+  );
 
   const result = {
     data: listings,
@@ -245,6 +309,8 @@ const getListings = asyncHandler(async (req, res) => {
     ...result,
   });
 });
+
+
 
 // @desc    Get single listing
 // @route   GET /api/v1/listings/:id
