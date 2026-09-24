@@ -211,6 +211,7 @@ const getListings = asyncHandler(async (req, res) => {
             id: true,
             name: true,
             email: true,
+            status: true,
             phone_number: true,
             host_details: true,
           },
