@@ -99,6 +99,7 @@ model UserSession {
   logged_in_at  DateTime  @default(now()) @db.Timestamp
   logged_out_at DateTime? @db.Timestamp
   is_active     Boolean   @default(true)
+  refresh_token_hash String?   @db.Text
 
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
