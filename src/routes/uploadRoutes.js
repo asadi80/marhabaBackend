@@ -1,9 +1,14 @@
 // src/routes/uploadRoutes.js
 
 const express = require("express");
+const path = require("path");
+const fs = require("fs/promises");
+const { v4: uuidv4 } = require("uuid");
+
 const upload = require("../middleware/upload");
 const { prisma } = require("../config/database");
 const { protect } = require("../middleware/auth");
+const { processImage } = require("../lib/processImage");
 
 const router = express.Router();
 
@@ -13,8 +18,14 @@ const router = express.Router();
 
 const allowedTypes = ["listings", "ids", "payments"];
 
+const UPLOAD_BASE = path.join(__dirname, "../../public/uploads");
+
 // ================================================================
 // ALLOWED LISTING IMAGE TYPES
+//
+// NOTE: HEIC/HEIF are accepted from the client only as a fallback.
+// `processImage` will always re-encode them to JPEG before saving,
+// so nothing HEIC ever lands on disk.
 // ================================================================
 
 const allowedListingImageTypes = [
@@ -27,6 +38,55 @@ const allowedListingImageTypes = [
 ];
 
 const MAX_LISTING_IMAGES = 6;
+
+// ================================================================
+// HELPERS
+// ================================================================
+
+/**
+ * Writes a raw buffer to disk and returns a descriptor shaped like
+ * what `processImage` returns, so downstream code can treat both
+ * paths identically.
+ */
+async function writeRawFile(buffer, originalName, type) {
+  const folderPath = path.join(UPLOAD_BASE, type);
+  await fs.mkdir(folderPath, { recursive: true });
+
+  const ext = path.extname(originalName).toLowerCase() || "";
+  const filename = `${uuidv4()}${ext}`;
+  const filepath = path.join(folderPath, filename);
+
+  await fs.writeFile(filepath, buffer);
+  const stat = await fs.stat(filepath);
+
+  return {
+    filename,
+    filepath,
+    urlPath: `/uploads/${type}/${filename}`,
+    mimetype: ext === ".pdf" ? "application/pdf" : "application/octet-stream",
+    size: stat.size,
+    width: null,
+    height: null,
+  };
+}
+
+/**
+ * Normalizes any incoming file into a saved file descriptor:
+ *  - PDFs are written raw.
+ *  - Everything else goes through sharp (HEIC → JPEG, EXIF rotate,
+ *    resize, re-encode).
+ */
+async function saveUploadedFile(file, type) {
+  const isPdf =
+    file.mimetype === "application/pdf" ||
+    file.originalname.toLowerCase().endsWith(".pdf");
+
+  if (isPdf) {
+    return writeRawFile(file.buffer, file.originalname, type);
+  }
+
+  return processImage(file.buffer, file.originalname, type);
+}
 
 // ================================================================
 // POST /api/v1/uploads/:type
@@ -98,21 +158,103 @@ router.post(
       } = req.body;
 
       // ============================================================
+      // LISTINGS: reject PDFs early (listings must be images)
+      // ============================================================
+
+      if (
+        type === "listings" &&
+        (req.file.mimetype === "application/pdf" ||
+          req.file.originalname.toLowerCase().endsWith(".pdf"))
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "PDF files are not allowed as listing images",
+        });
+      }
+
+      // ============================================================
+      // LISTINGS: validate MIME type (before processing)
+      // ============================================================
+
+      if (
+        type === "listings" &&
+        !allowedListingImageTypes.includes(req.file.mimetype)
+      ) {
+        // Some browsers report HEIC as application/octet-stream.
+        // Fall back to extension check before rejecting.
+        const ext = path
+          .extname(req.file.originalname)
+          .toLowerCase();
+
+        const allowedExt = [
+          ".jpg",
+          ".jpeg",
+          ".png",
+          ".webp",
+          ".heic",
+          ".heif",
+        ];
+
+        if (!allowedExt.includes(ext)) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Invalid listing image type. Allowed: JPG, JPEG, PNG, WEBP, HEIC, HEIF",
+            allowedTypes: allowedListingImageTypes,
+          });
+        }
+      }
+
+      // ============================================================
+      // PROCESS IMAGE / WRITE PDF
+      //
+      // processImage handles:
+      //   - HEIC/HEIF → JPEG (via sharp/libvips)
+      //   - EXIF auto-rotate
+      //   - Resize (longest side ≤ 2048)
+      //   - Re-encode (JPEG q90, or WebP if source was WebP)
+      // ============================================================
+
+      let processed;
+      try {
+        processed = await saveUploadedFile(req.file, type);
+      } catch (err) {
+        console.error("❌ Image processing failed:", err);
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Could not process image. Please upload a valid JPG, PNG, WebP, or HEIC file.",
+          error:
+            process.env.NODE_ENV === "development"
+              ? err.message
+              : undefined,
+        });
+      }
+
+      // ============================================================
       // BUILD FILE URL
       // ============================================================
 
       const baseUrl = `${req.protocol}://${req.get("host")}`;
-
-      const url = `${baseUrl}/uploads/${type}/${req.file.filename}`;
+      const url = `${baseUrl}${processed.urlPath}`;
 
       console.log("==============================================");
       console.log("📤 FILE UPLOAD");
       console.log("==============================================");
       console.log("Type:", type);
       console.log("Original name:", req.file.originalname);
-      console.log("Filename:", req.file.filename);
-      console.log("Mimetype:", req.file.mimetype);
-      console.log("Size:", req.file.size);
+      console.log("Original mimetype:", req.file.mimetype);
+      console.log("Original size:", req.file.size);
+      console.log("Saved filename:", processed.filename);
+      console.log("Saved mimetype:", processed.mimetype);
+      console.log("Saved size:", processed.size);
+      if (processed.width && processed.height) {
+        console.log(
+          "Saved dimensions:",
+          `${processed.width}×${processed.height}`,
+        );
+      }
       console.log("URL:", url);
       console.log("User:", req.user.id);
       console.log("==============================================");
@@ -123,19 +265,6 @@ router.post(
 
       if (type === "listings") {
         // ------------------------------------------------------------
-        // Validate image type
-        // ------------------------------------------------------------
-
-        if (!allowedListingImageTypes.includes(req.file.mimetype)) {
-          return res.status(400).json({
-            success: false,
-            message:
-              "Invalid listing image type. Allowed: JPG, JPEG, PNG, WEBP, HEIC, HEIF",
-            allowedTypes: allowedListingImageTypes,
-          });
-        }
-
-        // ------------------------------------------------------------
         // If listing_id was supplied, attach image directly
         // to Listing.images
         // ------------------------------------------------------------
@@ -143,7 +272,7 @@ router.post(
         if (listing_id) {
           console.log(
             "🏠 Adding uploaded image to listing:",
-            listing_id
+            listing_id,
           );
 
           // ----------------------------------------------------------
@@ -175,7 +304,7 @@ router.post(
           // ----------------------------------------------------------
 
           const isAdmin = ["admin", "super_admin"].includes(
-            req.user.role
+            req.user.role,
           );
 
           const isOwner = listing.host_id === req.user.id;
@@ -212,10 +341,7 @@ router.post(
           // Add image URL
           // ----------------------------------------------------------
 
-          const updatedImages = [
-            ...existingImages,
-            url,
-          ];
+          const updatedImages = [...existingImages, url];
 
           // ----------------------------------------------------------
           // Update Listing.images
@@ -238,27 +364,22 @@ router.post(
             },
           });
 
-          console.log(
-            "✅ Listing image saved:",
-            listing_id
-          );
-
-          console.log(
-            "🖼️ Total images:",
-            updatedImages.length
-          );
+          console.log("✅ Listing image saved:", listing_id);
+          console.log("🖼️ Total images:", updatedImages.length);
 
           return res.status(201).json({
             success: true,
             message: "Listing image uploaded successfully",
 
             file: {
-              filename: req.file.filename,
+              filename: processed.filename,
               originalName: req.file.originalname,
-              size: req.file.size,
-              mimetype: req.file.mimetype,
+              size: processed.size,
+              mimetype: processed.mimetype,
               type,
               url,
+              width: processed.width,
+              height: processed.height,
             },
 
             listing: updatedListing,
@@ -275,7 +396,7 @@ router.post(
         // ------------------------------------------------------------
 
         console.log(
-          "✅ Listing image uploaded without listing_id"
+          "✅ Listing image uploaded without listing_id",
         );
 
         return res.status(201).json({
@@ -283,12 +404,14 @@ router.post(
           message: "Listing image uploaded successfully",
 
           file: {
-            filename: req.file.filename,
+            filename: processed.filename,
             originalName: req.file.originalname,
-            size: req.file.size,
-            mimetype: req.file.mimetype,
+            size: processed.size,
+            mimetype: processed.mimetype,
             type,
             url,
+            width: processed.width,
+            height: processed.height,
           },
 
           url,
@@ -310,10 +433,9 @@ router.post(
         if (user_id) {
           targetUserId = user_id;
 
-          const isAdmin = [
-            "admin",
-            "super_admin",
-          ].includes(req.user.role);
+          const isAdmin = ["admin", "super_admin"].includes(
+            req.user.role,
+          );
 
           const isOwnId = req.user.id === user_id;
 
@@ -330,9 +452,7 @@ router.post(
         // Default values
         // ------------------------------------------------------------
 
-        const finalDocumentType =
-          document_type || "national_id";
-
+        const finalDocumentType = document_type || "national_id";
         const finalSide = side || "front";
 
         // ------------------------------------------------------------
@@ -346,11 +466,7 @@ router.post(
           "other",
         ];
 
-        if (
-          !allowedDocumentTypes.includes(
-            finalDocumentType
-          )
-        ) {
+        if (!allowedDocumentTypes.includes(finalDocumentType)) {
           return res.status(400).json({
             success: false,
             message: "Invalid document type",
@@ -362,10 +478,7 @@ router.post(
         // Allowed sides
         // ------------------------------------------------------------
 
-        const allowedSides = [
-          "front",
-          "back",
-        ];
+        const allowedSides = ["front", "back"];
 
         if (!allowedSides.includes(finalSide)) {
           return res.status(400).json({
@@ -377,40 +490,27 @@ router.post(
 
         console.log(
           "👤 Uploading ID document for user:",
-          targetUserId
+          targetUserId,
         );
-
-        console.log(
-          "📄 Document type:",
-          finalDocumentType
-        );
-
-        console.log(
-          "📄 Side:",
-          finalSide
-        );
-
-        console.log(
-          "📎 ID URL:",
-          url
-        );
+        console.log("📄 Document type:", finalDocumentType);
+        console.log("📄 Side:", finalSide);
+        console.log("📎 ID URL:", url);
 
         // ------------------------------------------------------------
         // Verify user exists
         // ------------------------------------------------------------
 
-        const currentUser =
-          await prisma.user.findUnique({
-            where: {
-              id: targetUserId,
-            },
+        const currentUser = await prisma.user.findUnique({
+          where: {
+            id: targetUserId,
+          },
 
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          });
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        });
 
         if (!currentUser) {
           return res.status(404).json({
@@ -423,46 +523,43 @@ router.post(
         // Create UserIdDocument
         // ------------------------------------------------------------
 
-        const idDocument =
-          await prisma.userIdDocument.create({
-            data: {
-              user_id: targetUserId,
+        const idDocument = await prisma.userIdDocument.create({
+          data: {
+            user_id: targetUserId,
 
-              document_type: finalDocumentType,
-              side: finalSide,
+            document_type: finalDocumentType,
+            side: finalSide,
 
-              file_url: url,
-              file_name: req.file.originalname,
-              file_type: req.file.mimetype,
+            file_url: url,
+            file_name: req.file.originalname,
+            file_type: processed.mimetype,
 
-              status: "pending",
+            status: "pending",
 
-              rejection_reason: null,
-              admin_notes: null,
+            rejection_reason: null,
+            admin_notes: null,
 
-              reviewed_at: null,
-              reviewed_by: null,
-            },
-          });
+            reviewed_at: null,
+            reviewed_by: null,
+          },
+        });
 
-        console.log(
-          "✅ ID document created:",
-          idDocument.id
-        );
+        console.log("✅ ID document created:", idDocument.id);
 
         return res.status(201).json({
           success: true,
-          message:
-            "ID document uploaded successfully",
+          message: "ID document uploaded successfully",
 
           file: {
             id: idDocument.id,
-            filename: req.file.filename,
+            filename: processed.filename,
             originalName: req.file.originalname,
-            size: req.file.size,
-            mimetype: req.file.mimetype,
+            size: processed.size,
+            mimetype: processed.mimetype,
             type,
             url,
+            width: processed.width,
+            height: processed.height,
           },
 
           document: idDocument,
@@ -481,7 +578,7 @@ router.post(
         if (payment_id) {
           console.log(
             "💰 Adding receipt to payment:",
-            payment_id
+            payment_id,
           );
 
           // ----------------------------------------------------------
@@ -510,10 +607,9 @@ router.post(
           // Permission
           // ----------------------------------------------------------
 
-          const isAdmin = [
-            "admin",
-            "super_admin",
-          ].includes(req.user.role);
+          const isAdmin = ["admin", "super_admin"].includes(
+            req.user.role,
+          );
 
           const isOwnPayment =
             req.user.id === payment.host_id;
@@ -559,21 +655,22 @@ router.post(
 
           console.log(
             "✅ Payment receipt added:",
-            updatedPayment.id
+            updatedPayment.id,
           );
 
           return res.status(201).json({
             success: true,
-            message:
-              "Payment receipt uploaded successfully",
+            message: "Payment receipt uploaded successfully",
 
             file: {
-              filename: req.file.filename,
+              filename: processed.filename,
               originalName: req.file.originalname,
-              size: req.file.size,
-              mimetype: req.file.mimetype,
+              size: processed.size,
+              mimetype: processed.mimetype,
               type,
               url,
+              width: processed.width,
+              height: processed.height,
             },
 
             payment: updatedPayment,
@@ -587,13 +684,11 @@ router.post(
         if (user_id) {
           const targetUserId = user_id;
 
-          const isAdmin = [
-            "admin",
-            "super_admin",
-          ].includes(req.user.role);
+          const isAdmin = ["admin", "super_admin"].includes(
+            req.user.role,
+          );
 
-          const isOwnPayment =
-            req.user.id === user_id;
+          const isOwnPayment = req.user.id === user_id;
 
           if (!isAdmin && !isOwnPayment) {
             return res.status(403).json({
@@ -605,30 +700,25 @@ router.post(
 
           console.log(
             "💰 Creating new payment receipt for user:",
-            targetUserId
+            targetUserId,
           );
-
-          console.log(
-            "📎 Payment receipt URL:",
-            url
-          );
+          console.log("📎 Payment receipt URL:", url);
 
           // ----------------------------------------------------------
           // Verify user
           // ----------------------------------------------------------
 
-          const currentUser =
-            await prisma.user.findUnique({
-              where: {
-                id: targetUserId,
-              },
+          const currentUser = await prisma.user.findUnique({
+            where: {
+              id: targetUserId,
+            },
 
-              select: {
-                id: true,
-                name: true,
-                email: true,
-              },
-            });
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          });
 
           if (!currentUser) {
             return res.status(404).json({
@@ -669,21 +759,22 @@ router.post(
 
           console.log(
             "✅ New payment record created:",
-            newPayment.id
+            newPayment.id,
           );
 
           return res.status(201).json({
             success: true,
-            message:
-              "Payment receipt uploaded successfully",
+            message: "Payment receipt uploaded successfully",
 
             file: {
-              filename: req.file.filename,
+              filename: processed.filename,
               originalName: req.file.originalname,
-              size: req.file.size,
-              mimetype: req.file.mimetype,
+              size: processed.size,
+              mimetype: processed.mimetype,
               type,
               url,
+              width: processed.width,
+              height: processed.height,
             },
 
             payment: newPayment,
@@ -710,12 +801,14 @@ router.post(
         message: "File uploaded successfully",
 
         file: {
-          filename: req.file.filename,
+          filename: processed.filename,
           originalName: req.file.originalname,
-          size: req.file.size,
-          mimetype: req.file.mimetype,
+          size: processed.size,
+          mimetype: processed.mimetype,
           type,
           url,
+          width: processed.width,
+          height: processed.height,
         },
 
         url,
@@ -738,7 +831,7 @@ router.post(
             : undefined,
       });
     }
-  }
+  },
 );
 
 // ================================================================
@@ -757,36 +850,35 @@ router.get(
       // GET USER
       // ============================================================
 
-      const user =
-        await prisma.user.findUnique({
-          where: {
-            id: userId,
-          },
+      const user = await prisma.user.findUnique({
+        where: {
+          id: userId,
+        },
 
-          include: {
-            // ------------------------------------------------------
-            // All ID documents
-            // ------------------------------------------------------
+        include: {
+          // ------------------------------------------------------
+          // All ID documents
+          // ------------------------------------------------------
 
-            user_id_documents: {
-              orderBy: {
-                created_at: "desc",
-              },
-            },
-
-            // ------------------------------------------------------
-            // Latest payment
-            // ------------------------------------------------------
-
-            host_subscription_payments: {
-              orderBy: {
-                created_at: "desc",
-              },
-
-              take: 1,
+          user_id_documents: {
+            orderBy: {
+              created_at: "desc",
             },
           },
-        });
+
+          // ------------------------------------------------------
+          // Latest payment
+          // ------------------------------------------------------
+
+          host_subscription_payments: {
+            orderBy: {
+              created_at: "desc",
+            },
+
+            take: 1,
+          },
+        },
+      });
 
       if (!user) {
         return res.status(404).json({
@@ -799,21 +891,17 @@ router.get(
       // ID DOCUMENTS
       // ============================================================
 
-      const idDocuments =
-        user.user_id_documents || [];
+      const idDocuments = user.user_id_documents || [];
 
       const latestIdDocument =
-        idDocuments.length > 0
-          ? idDocuments[0]
-          : null;
+        idDocuments.length > 0 ? idDocuments[0] : null;
 
       // ============================================================
       // LATEST PAYMENT
       // ============================================================
 
       const latestPayment =
-        user.host_subscription_payments?.[0] ||
-        null;
+        user.host_subscription_payments?.[0] || null;
 
       // ============================================================
       // VERIFICATION OBJECT
@@ -821,61 +909,41 @@ router.get(
 
       const verificationStatus = {
         id: {
-          uploaded:
-            idDocuments.length > 0,
+          uploaded: idDocuments.length > 0,
 
-          status:
-            latestIdDocument?.status ||
-            "pending",
+          status: latestIdDocument?.status || "pending",
 
-          documents:
-            idDocuments,
+          documents: idDocuments,
 
-          verified:
-            latestIdDocument?.status ===
-            "approved",
+          verified: latestIdDocument?.status === "approved",
 
           verified_at:
-            latestIdDocument?.status ===
-            "approved"
+            latestIdDocument?.status === "approved"
               ? latestIdDocument.reviewed_at
               : null,
 
-          rejected:
-            latestIdDocument?.status ===
-            "rejected",
+          rejected: latestIdDocument?.status === "rejected",
 
           rejection_reason:
-            latestIdDocument?.rejection_reason ||
-            null,
+            latestIdDocument?.rejection_reason || null,
         },
 
         payment: {
-          uploaded:
-            !!(
-              latestPayment &&
-              latestPayment.receipt_images &&
-              latestPayment.receipt_images.length >
-                0
-            ),
+          uploaded: !!(
+            latestPayment &&
+            latestPayment.receipt_images &&
+            latestPayment.receipt_images.length > 0
+          ),
 
-          status:
-            latestPayment?.status ||
-            "pending",
+          status: latestPayment?.status || "pending",
 
-          amount:
-            latestPayment?.amount ||
-            null,
+          amount: latestPayment?.amount || null,
 
-          submitted_at:
-            latestPayment?.created_at ||
-            null,
+          submitted_at: latestPayment?.created_at || null,
 
           approved_at: null,
 
-          rejected:
-            latestPayment?.status ===
-            "rejected",
+          rejected: latestPayment?.status === "rejected",
 
           rejection_reason: null,
         },
@@ -894,16 +962,15 @@ router.get(
     } catch (error) {
       console.error(
         "❌ Error fetching verification status:",
-        error
+        error,
       );
 
       return res.status(500).json({
         success: false,
-        message:
-          "Failed to fetch verification status",
+        message: "Failed to fetch verification status",
       });
     }
-  }
+  },
 );
 
 // ================================================================

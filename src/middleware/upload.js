@@ -1,72 +1,9 @@
-//middleware/upload
+// middleware/upload.js
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
-const { v4: uuidv4 } = require("uuid");
-
-// ─────────────────────────────────────────────
-// Upload directories
-// ─────────────────────────────────────────────
-
-const uploadBase = path.join(__dirname, "../../public/uploads");
-
-const folders = [
-  "listings",
-  "ids",
-  "payments",
-];
-
-// Create folders automatically
-folders.forEach((folder) => {
-  const folderPath = path.join(uploadBase, folder);
-
-  if (!fs.existsSync(folderPath)) {
-    fs.mkdirSync(folderPath, {
-      recursive: true,
-    });
-  }
-});
-
-// ─────────────────────────────────────────────
-// Storage
-// ─────────────────────────────────────────────
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const type = req.params.type;
-
-    if (!folders.includes(type)) {
-      return cb(new Error("Invalid upload type"));
-    }
-
-    const folderPath = path.join(uploadBase, type);
-
-    if (!fs.existsSync(folderPath)) {
-      fs.mkdirSync(folderPath, {
-        recursive: true,
-      });
-    }
-
-    cb(null, folderPath);
-  },
-
-  filename: (req, file, cb) => {
-    const extension = path
-      .extname(file.originalname)
-      .toLowerCase();
-
-    const filename = `${uuidv4()}${extension}`;
-
-    cb(null, filename);
-  },
-});
-
-// ─────────────────────────────────────────────
-// Allowed MIME types
-// ─────────────────────────────────────────────
 
 const allowedMimeTypes = [
   "image/jpeg",
+  "image/jpg",
   "image/png",
   "image/webp",
   "image/heic",
@@ -74,63 +11,30 @@ const allowedMimeTypes = [
   "application/pdf",
 ];
 
-// ─────────────────────────────────────────────
-// Allowed extensions
-// ─────────────────────────────────────────────
-
 const allowedExtensions = [
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".webp",
-  ".heic",
-  ".heif",
-  ".pdf",
+  ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".pdf",
 ];
 
-// ─────────────────────────────────────────────
-// File filter
-// ─────────────────────────────────────────────
-
 const fileFilter = (req, file, cb) => {
-  const extension = path
-    .extname(file.originalname)
-    .toLowerCase();
+  const ext = (file.originalname.match(/\.[^.]+$/) || [""])[0].toLowerCase();
+  const validMime = allowedMimeTypes.includes(file.mimetype);
+  const validExt = allowedExtensions.includes(ext);
 
-  // Some browsers report HEIC/HEIF as:
-  // application/octet-stream
-  //
-  // Therefore we check BOTH MIME type
-  // and file extension.
-
-  const validMimeType =
-    allowedMimeTypes.includes(file.mimetype);
-
-  const validExtension =
-    allowedExtensions.includes(extension);
-
-  if (validMimeType || validExtension) {
-    return cb(null, true);
-  }
+  // Some browsers send HEIC as application/octet-stream — accept by ext.
+  if (validMime || validExt) return cb(null, true);
 
   return cb(
     new Error(
-      "Only JPG, JPEG, PNG, WebP, HEIC, HEIF, and PDF files are allowed"
-    )
+      "Only JPG, JPEG, PNG, WebP, HEIC, HEIF, and PDF files are allowed",
+    ),
   );
 };
 
-// ─────────────────────────────────────────────
-// Multer configuration
-// ─────────────────────────────────────────────
-
+// Use memory storage so we can re-encode with sharp before writing.
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   fileFilter,
-
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10 MB
-  },
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 module.exports = upload;
