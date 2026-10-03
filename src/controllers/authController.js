@@ -535,18 +535,17 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: {
-        // ID documents
+        // All ID documents (newest first)
         id_documents: {
           orderBy: {
             created_at: "desc",
           },
         },
-        // Latest payment
+        // ALL payments (newest first) — no take limit
         host_subscription_payments: {
           orderBy: {
             created_at: "desc",
           },
-          take: 1,
         },
       },
     });
@@ -561,7 +560,6 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
     // ============================================================
     // ID DOCUMENTS
     // ============================================================
-
     const idDocuments = user.id_documents || [];
 
     const idUploaded = idDocuments.length > 0;
@@ -580,31 +578,52 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
 
     const latestApprovedIdDocument = idDocuments
       .filter(
-        (document) => document.status === "approved" && document.reviewed_at,
+        (document) =>
+          document.status === "approved" || document.status === "verified",
       )
-      .sort((a, b) => new Date(b.reviewed_at) - new Date(a.reviewed_at))[0];
+      .sort((a, b) => new Date(b.reviewed_at || 0) - new Date(a.reviewed_at || 0))[0];
+
+    const idBlock = {
+      uploaded: idUploaded,
+      documents: idDocuments,
+      status: idDocuments[0]?.status || "pending",
+      verified: idVerified,
+      verified_at: idVerified
+        ? latestApprovedIdDocument?.reviewed_at || null
+        : null,
+      rejected: idRejected,
+      rejection_reason: rejectedIdDocument?.rejection_reason || null,
+    };
+
+    // ============================================================
+    // PAYMENTS — build full list
+    // ============================================================
+    const allPayments = (user.host_subscription_payments || []).map((p) => ({
+      id: p.id,
+      host_id: p.host_id,
+      amount: p.amount,
+      status: p.status,
+      receipt_images: p.receipt_images || [],
+      paid_at: p.paid_at,
+      period_start: p.period_start,
+      period_end: p.period_end,
+      reference: p.reference,
+      notes: p.notes,
+      created_at: p.created_at,
+      updated_at: p.updated_at,
+    }));
+
+    const latestPayment = allPayments.length > 0 ? allPayments[0] : null;
 
     // ============================================================
     // NON-HOST USER
     // ============================================================
-
     if (user.role !== "host") {
       return res.status(200).json({
         success: true,
         data: {
-          id: {
-            uploaded: idUploaded,
-            documents: idDocuments,
-            status: idDocuments[0]?.status || "pending",
-            verified: idVerified,
-            verified_at: idVerified
-              ? latestApprovedIdDocument?.reviewed_at || null
-              : null,
-            rejected: idRejected,
-            rejection_reason: rejectedIdDocument?.rejection_reason || null,
-          },
+          id: idBlock,
           payment: {
-            // Summary fields
             uploaded: false,
             status: "pending",
             amount: null,
@@ -612,33 +631,35 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
             approved_at: null,
             rejected: false,
             rejection_reason: null,
-            // Full payment object (null for non-host)
             payment: null,
           },
+          all_payments: [],
           overall_status: user.status,
         },
       });
     }
 
     // ============================================================
-    // PAYMENT
+    // HOST PAYMENT SUMMARY
     // ============================================================
-
     const hostDetails = user.host_details || {};
-
-    const latestPayment = user.host_subscription_payments[0] || null;
 
     const paymentRejected = hostDetails.payment_rejected || false;
 
-    const paymentStatus = latestPayment ? latestPayment.status : "pending";
+    // Determine the "latest" payment's effective status.
+    // If the latest payment is approved, use "approved".
+    // If host_details says payment_rejected, only override to "rejected"
+    // when the latest payment isn't already approved.
+    let finalPaymentStatus = latestPayment ? latestPayment.status : "pending";
 
-    const finalPaymentStatus = paymentRejected ? "rejected" : paymentStatus;
+    if (
+      paymentRejected &&
+      finalPaymentStatus !== "approved"
+    ) {
+      finalPaymentStatus = "rejected";
+    }
 
-    // ============================================================
-    // BUILD PAYMENT OBJECT WITH FULL DETAILS & RECEIPT IMAGES
-    // ============================================================
-
-    let paymentObject = {
+    const paymentObject = {
       uploaded: !!(
         latestPayment &&
         latestPayment.receipt_images &&
@@ -648,47 +669,21 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
       amount: latestPayment ? latestPayment.amount : null,
       submitted_at: latestPayment ? latestPayment.created_at : null,
       approved_at: hostDetails.payment_verified_at || null,
-      rejected: paymentRejected,
-      rejection_reason: hostDetails.payment_rejection_reason || null,
+      rejected: paymentRejected && finalPaymentStatus !== "approved",
+      rejection_reason:
+        paymentRejected && finalPaymentStatus !== "approved"
+          ? hostDetails.payment_rejection_reason || null
+          : null,
+      payment: latestPayment, // full latest payment object (or null)
     };
-
-    // ✅ Add FULL payment object with receipt_images if payment exists
-    if (latestPayment) {
-      paymentObject.payment = {
-        id: latestPayment.id,
-        host_id: latestPayment.host_id,
-        amount: latestPayment.amount,
-        status: latestPayment.status,
-        receipt_images: latestPayment.receipt_images || [], // 👈 This contains the image URLs
-        paid_at: latestPayment.paid_at || null,
-        period_start: latestPayment.period_start || null,
-        period_end: latestPayment.period_end || null,
-        reference: latestPayment.reference || null,
-        notes: latestPayment.notes || null,
-        created_at: latestPayment.created_at,
-        updated_at: latestPayment.updated_at,
-      };
-    } else {
-      paymentObject.payment = null;
-    }
 
     // ============================================================
     // FINAL VERIFICATION STATUS
     // ============================================================
-
     const verificationStatus = {
-      id: {
-        uploaded: idUploaded,
-        documents: idDocuments,
-        status: idDocuments[0]?.status || "pending",
-        verified: idVerified,
-        verified_at: idVerified
-          ? latestApprovedIdDocument?.reviewed_at || null
-          : null,
-        rejected: idRejected,
-        rejection_reason: rejectedIdDocument?.rejection_reason || null,
-      },
+      id: idBlock,
       payment: paymentObject,
+      all_payments: allPayments,
       overall_status: user.status,
     };
 
@@ -702,7 +697,8 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch host verification status",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 });
