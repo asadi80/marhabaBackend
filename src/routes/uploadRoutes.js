@@ -182,18 +182,9 @@ router.post(
       ) {
         // Some browsers report HEIC as application/octet-stream.
         // Fall back to extension check before rejecting.
-        const ext = path
-          .extname(req.file.originalname)
-          .toLowerCase();
+        const ext = path.extname(req.file.originalname).toLowerCase();
 
-        const allowedExt = [
-          ".jpg",
-          ".jpeg",
-          ".png",
-          ".webp",
-          ".heic",
-          ".heif",
-        ];
+        const allowedExt = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"];
 
         if (!allowedExt.includes(ext)) {
           return res.status(400).json({
@@ -226,9 +217,7 @@ router.post(
           message:
             "Could not process image. Please upload a valid JPG, PNG, WebP, or HEIC file.",
           error:
-            process.env.NODE_ENV === "development"
-              ? err.message
-              : undefined,
+            process.env.NODE_ENV === "development" ? err.message : undefined,
         });
       }
 
@@ -270,10 +259,7 @@ router.post(
         // ------------------------------------------------------------
 
         if (listing_id) {
-          console.log(
-            "🏠 Adding uploaded image to listing:",
-            listing_id,
-          );
+          console.log("🏠 Adding uploaded image to listing:", listing_id);
 
           // ----------------------------------------------------------
           // Find listing
@@ -303,9 +289,7 @@ router.post(
           // Only listing owner or admin can upload
           // ----------------------------------------------------------
 
-          const isAdmin = ["admin", "super_admin"].includes(
-            req.user.role,
-          );
+          const isAdmin = ["admin", "super_admin"].includes(req.user.role);
 
           const isOwner = listing.host_id === req.user.id;
 
@@ -395,9 +379,7 @@ router.post(
         // and then sends the URLs when creating the Listing.
         // ------------------------------------------------------------
 
-        console.log(
-          "✅ Listing image uploaded without listing_id",
-        );
+        console.log("✅ Listing image uploaded without listing_id");
 
         return res.status(201).json({
           success: true,
@@ -433,17 +415,14 @@ router.post(
         if (user_id) {
           targetUserId = user_id;
 
-          const isAdmin = ["admin", "super_admin"].includes(
-            req.user.role,
-          );
+          const isAdmin = ["admin", "super_admin"].includes(req.user.role);
 
           const isOwnId = req.user.id === user_id;
 
           if (!isAdmin && !isOwnId) {
             return res.status(403).json({
               success: false,
-              message:
-                "You don't have permission to upload ID for this user",
+              message: "You don't have permission to upload ID for this user",
             });
           }
         }
@@ -488,10 +467,7 @@ router.post(
           });
         }
 
-        console.log(
-          "👤 Uploading ID document for user:",
-          targetUserId,
-        );
+        console.log("👤 Uploading ID document for user:", targetUserId);
         console.log("📄 Document type:", finalDocumentType);
         console.log("📄 Side:", finalSide);
         console.log("📎 ID URL:", url);
@@ -576,25 +552,21 @@ router.post(
         // ------------------------------------------------------------
 
         if (payment_id) {
-          console.log(
-            "💰 Adding receipt to payment:",
-            payment_id,
-          );
+          console.log("💰 Adding receipt to payment:", payment_id);
 
           // ----------------------------------------------------------
           // Verify payment exists
           // ----------------------------------------------------------
 
-          const payment =
-            await prisma.hostSubscriptionPayment.findUnique({
-              where: {
-                id: payment_id,
-              },
+          const payment = await prisma.hostSubscriptionPayment.findUnique({
+            where: {
+              id: payment_id,
+            },
 
-              select: {
-                host_id: true,
-              },
-            });
+            select: {
+              host_id: true,
+            },
+          });
 
           if (!payment) {
             return res.status(404).json({
@@ -607,12 +579,9 @@ router.post(
           // Permission
           // ----------------------------------------------------------
 
-          const isAdmin = ["admin", "super_admin"].includes(
-            req.user.role,
-          );
+          const isAdmin = ["admin", "super_admin"].includes(req.user.role);
 
-          const isOwnPayment =
-            req.user.id === payment.host_id;
+          const isOwnPayment = req.user.id === payment.host_id;
 
           if (!isAdmin && !isOwnPayment) {
             return res.status(403).json({
@@ -626,37 +595,33 @@ router.post(
           // Update payment
           // ----------------------------------------------------------
 
-          const updatedPayment =
-            await prisma.hostSubscriptionPayment.update({
-              where: {
-                id: payment_id,
+          const updatedPayment = await prisma.hostSubscriptionPayment.update({
+            where: {
+              id: payment_id,
+            },
+
+            data: {
+              receipt_images: {
+                push: url,
               },
 
-              data: {
-                receipt_images: {
-                  push: url,
-                },
+              status: "pending",
 
-                status: "pending",
+              updated_at: new Date(),
+            },
 
-                updated_at: new Date(),
-              },
-
-              include: {
-                host: {
-                  select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                  },
+            include: {
+              host: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
                 },
               },
-            });
+            },
+          });
 
-          console.log(
-            "✅ Payment receipt added:",
-            updatedPayment.id,
-          );
+          console.log("✅ Payment receipt added:", updatedPayment.id);
 
           return res.status(201).json({
             success: true,
@@ -684,9 +649,7 @@ router.post(
         if (user_id) {
           const targetUserId = user_id;
 
-          const isAdmin = ["admin", "super_admin"].includes(
-            req.user.role,
-          );
+          const isAdmin = ["admin", "super_admin"].includes(req.user.role);
 
           const isOwnPayment = req.user.id === user_id;
 
@@ -731,36 +694,32 @@ router.post(
           // Create payment
           // ----------------------------------------------------------
 
-          const newPayment =
-            await prisma.hostSubscriptionPayment.create({
-              data: {
-                host_id: targetUserId,
+          const newPayment = await prisma.hostSubscriptionPayment.create({
+            data: {
+              host_id: targetUserId,
 
-                amount: 0,
+              amount: 0,
 
-                status: "pending",
+              status: "pending",
 
-                receipt_images: [url],
+              receipt_images: [url],
 
-                created_at: new Date(),
-                updated_at: new Date(),
-              },
+              created_at: new Date(),
+              updated_at: new Date(),
+            },
 
-              include: {
-                host: {
-                  select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                  },
+            include: {
+              host: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
                 },
               },
-            });
+            },
+          });
 
-          console.log(
-            "✅ New payment record created:",
-            newPayment.id,
-          );
+          console.log("✅ New payment record created:", newPayment.id);
 
           return res.status(201).json({
             success: true,
@@ -826,9 +785,7 @@ router.post(
         message: "File upload failed",
 
         error:
-          process.env.NODE_ENV === "development"
-            ? error.message
-            : undefined,
+          process.env.NODE_ENV === "development" ? error.message : undefined,
       });
     }
   },
@@ -875,7 +832,7 @@ router.get(
               created_at: "desc",
             },
 
-            take: 1,
+            // take: 100,
           },
         },
       });
@@ -893,15 +850,13 @@ router.get(
 
       const idDocuments = user.user_id_documents || [];
 
-      const latestIdDocument =
-        idDocuments.length > 0 ? idDocuments[0] : null;
+      const latestIdDocument = idDocuments.length > 0 ? idDocuments[0] : null;
 
       // ============================================================
       // LATEST PAYMENT
       // ============================================================
 
-      const latestPayment =
-        user.host_subscription_payments?.[0] || null;
+      const latestPayment = user.host_subscription_payments?.[0] || null;
 
       // ============================================================
       // VERIFICATION OBJECT
@@ -915,17 +870,19 @@ router.get(
 
           documents: idDocuments,
 
-          verified: latestIdDocument?.status === "approved",
+          verified:
+            latestIdDocument?.status === "verified" ||
+            latestIdDocument?.status === "approved",
 
           verified_at:
+            latestIdDocument?.status === "verified" ||
             latestIdDocument?.status === "approved"
               ? latestIdDocument.reviewed_at
               : null,
 
           rejected: latestIdDocument?.status === "rejected",
 
-          rejection_reason:
-            latestIdDocument?.rejection_reason || null,
+          rejection_reason: latestIdDocument?.rejection_reason || null,
         },
 
         payment: {
@@ -941,12 +898,50 @@ router.get(
 
           submitted_at: latestPayment?.created_at || null,
 
-          approved_at: null,
+          approved_at:
+            latestPayment?.status === "approved"
+              ? latestPayment.updated_at
+              : null,
 
           rejected: latestPayment?.status === "rejected",
 
-          rejection_reason: null,
+          rejection_reason:
+            latestPayment?.status === "rejected"
+              ? latestPayment.notes || "Payment rejected"
+              : null,
+
+          // ⬇️ FULL PAYMENT OBJECT (frontend reads payment.payment)
+          payment: latestPayment
+            ? {
+                id: latestPayment.id,
+                host_id: latestPayment.host_id,
+                amount: latestPayment.amount,
+                status: latestPayment.status,
+                receipt_images: latestPayment.receipt_images || [],
+                paid_at: latestPayment.paid_at,
+                period_start: latestPayment.period_start,
+                period_end: latestPayment.period_end,
+                reference: latestPayment.reference,
+                notes: latestPayment.notes,
+                created_at: latestPayment.created_at,
+                updated_at: latestPayment.updated_at,
+              }
+            : null,
         },
+        all_payments: payments.map((p) => ({
+          id: p.id,
+          host_id: p.host_id,
+          amount: p.amount,
+          status: p.status,
+          receipt_images: p.receipt_images || [],
+          paid_at: p.paid_at,
+          period_start: p.period_start,
+          period_end: p.period_end,
+          reference: p.reference,
+          notes: p.notes,
+          created_at: p.created_at,
+          updated_at: p.updated_at,
+        })),
 
         overall_status: user.status,
       };
@@ -960,10 +955,7 @@ router.get(
         data: verificationStatus,
       });
     } catch (error) {
-      console.error(
-        "❌ Error fetching verification status:",
-        error,
-      );
+      console.error("❌ Error fetching verification status:", error);
 
       return res.status(500).json({
         success: false,
