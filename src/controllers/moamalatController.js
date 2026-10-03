@@ -7,8 +7,8 @@ const { asyncHandler } = require("../middleware/errorHandler");
 // ============================================================
 // MOAMALAT CREDENTIALS (from .env)
 // ============================================================
-const MID = process.env.MOAMALAT_MERCHANT_ID;
-const TID = process.env.MOAMALAT_TERMINAL_ID;
+const mID = process.env.MOAMALAT_MERCHANT_ID;
+const tID = process.env.MOAMALAT_TERMINAL_ID;
 const SECRET_KEY = process.env.MOAMALAT_SECRET_KEY;
 
 // Subscription pricing / duration
@@ -69,7 +69,7 @@ const initiateMoamalatPayment = asyncHandler(async (req, res) => {
   // ----------------------------------------------------------
   // VALIDATE SERVER CREDENTIALS
   // ----------------------------------------------------------
-  if (!MID || !TID || !SECRET_KEY) {
+  if (!mID || !tID || !SECRET_KEY) {
     console.error("❌ Moamalat credentials missing from environment");
     return res.status(500).json({
       success: false,
@@ -123,10 +123,10 @@ const initiateMoamalatPayment = asyncHandler(async (req, res) => {
   //   AmountTrxn, MerchantId, MerchantReference, TerminalId, TrxDateTime
   // ----------------------------------------------------------
   const secureHash = buildSecureHash({
-    AmountTrxn: amountTrxn,
-    MerchantId: MID,
+    AmountTrxn: amount,
+    MID: mID,
     MerchantReference: merchantReference,
-    TerminalId: TID,
+    TID: tID,
     TrxDateTime: trxDateTime,
   });
 
@@ -144,8 +144,8 @@ const initiateMoamalatPayment = asyncHandler(async (req, res) => {
   return res.status(200).json({
     success: true,
     data: {
-      merchantCode: MID,
-      terminalId: TID,
+      MID: mID,
+      TID: mID,
       amountTrxn,
       merchantReference,
       trxDateTime,
@@ -246,10 +246,10 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
   const expectedHash = buildSecureHash({
     AmountTrxn: Amount,
     Currency: Currency,
-    MerchantId: MID,
+    MID: mID,
     MerchantReference: MerchantReference,
     PaidThrough: PaidThrough,
-    TerminalId: TID,
+    TID: tID,
     TxnDate: TxnDate,
   });
 
