@@ -7,8 +7,8 @@ const { asyncHandler } = require("../middleware/errorHandler");
 // ============================================================
 // MOAMALAT CREDENTIALS (from .env)
 // ============================================================
-const mID = process.env.MOAMALAT_MERCHANT_ID;
-const tID = process.env.MOAMALAT_TERMINAL_ID;
+const MID = process.env.MOAMALAT_MERCHANT_ID;
+const TID = process.env.MOAMALAT_TERMINAL_ID;
 const SECRET_KEY = process.env.MOAMALAT_SECRET_KEY;
 
 // Subscription pricing / duration
@@ -69,7 +69,7 @@ const initiateMoamalatPayment = asyncHandler(async (req, res) => {
   // ----------------------------------------------------------
   // VALIDATE SERVER CREDENTIALS
   // ----------------------------------------------------------
-  if (!mID || !tID || !SECRET_KEY) {
+  if (!MID || !TID || !SECRET_KEY) {
     console.error("❌ Moamalat credentials missing from environment");
     return res.status(500).json({
       success: false,
@@ -123,10 +123,10 @@ const initiateMoamalatPayment = asyncHandler(async (req, res) => {
   //   AmountTrxn, MerchantId, MerchantReference, TerminalId, TrxDateTime
   // ----------------------------------------------------------
   const secureHash = buildSecureHash({
-    AmountTrxn: amount,
-    MID: mID,
+    AmountTrxn: amountTrxn,
+    MerchantId: MID,
     MerchantReference: merchantReference,
-    TID: tID,
+    TerminalId: TID,
     TrxDateTime: trxDateTime,
   });
 
@@ -144,8 +144,8 @@ const initiateMoamalatPayment = asyncHandler(async (req, res) => {
   return res.status(200).json({
     success: true,
     data: {
-      MID: mID,
-      TID: mID,
+      merchantCode: MID,
+      terminalId: TID,
       amountTrxn,
       merchantReference,
       trxDateTime,
@@ -206,27 +206,27 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
   // touch the database. No pending record was created.
   // ----------------------------------------------------------
   if (outcome !== "completed") {
-    console.log("⚠️ Moamalat payment not completed:", {
-      userId,
-      outcome,
-      error,
-      MerchantReference,
-      ResponseCode,
-      ResponseMessage,
-    });
+  console.log("⚠️ Moamalat payment not completed:", {
+    userId,
+    outcome,
+    error,
+    MerchantReference,
+    ResponseCode,
+    ResponseMessage,
+  });
 
-    return res.status(200).json({
-      success: false,
-      message:
-        outcome === "cancelled"
-          ? "Payment was cancelled"
-          : ResponseMessage || error || "Payment failed",
-      code: outcome === "cancelled" ? "PAYMENT_CANCELLED" : "PAYMENT_FAILED",
-      // NEW — forward the gateway response
-      responseCode: ResponseCode || null,
-      responseMessage: ResponseMessage || error || null,
-    });
-  }
+  return res.status(200).json({
+    success: false,
+    message:
+      outcome === "cancelled"
+        ? "Payment was cancelled"
+        : ResponseMessage || error || "Payment failed",
+    code: outcome === "cancelled" ? "PAYMENT_CANCELLED" : "PAYMENT_FAILED",
+    // NEW — forward the gateway response
+    responseCode: ResponseCode || null,
+    responseMessage: ResponseMessage || error || null,
+  });
+}
 
   // ----------------------------------------------------------
   // VERIFY SECURE HASH FROM CALLBACK
@@ -246,10 +246,10 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
   const expectedHash = buildSecureHash({
     AmountTrxn: Amount,
     Currency: Currency,
-    MID: mID,
+    MerchantId: MID,
     MerchantReference: MerchantReference,
     PaidThrough: PaidThrough,
-    TID: tID,
+    TerminalId: TID,
     TxnDate: TxnDate,
   });
 
