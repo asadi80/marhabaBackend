@@ -13,7 +13,7 @@ const { USER_STATUS } = require("../utils/constants");
 // refresh token can be replayed as an access token and vice versa.
 if (!process.env.JWT_SECRET || !process.env.JWT_REFRESH_SECRET) {
   throw new Error(
-    "JWT_SECRET and JWT_REFRESH_SECRET must both be set (and must be different values)."
+    "JWT_SECRET and JWT_REFRESH_SECRET must both be set (and must be different values).",
   );
 }
 
@@ -60,13 +60,13 @@ class AuthService {
     const accessToken = jwt.sign(
       { id: userId, sessionId, type: "access" },
       process.env.JWT_SECRET,
-      { expiresIn: ACCESS_TOKEN_EXPIRES_IN }
+      { expiresIn: ACCESS_TOKEN_EXPIRES_IN },
     );
 
     const refreshToken = jwt.sign(
       { id: userId, sessionId, type: "refresh" },
       process.env.JWT_REFRESH_SECRET,
-      { expiresIn: REFRESH_TOKEN_EXPIRES_IN }
+      { expiresIn: REFRESH_TOKEN_EXPIRES_IN },
     );
 
     return { accessToken, refreshToken };
@@ -119,29 +119,31 @@ class AuthService {
 
     const { name, email, password, phone_number } = userData;
 
-    // SECURITY: role is deliberately NOT destructured from client input.
-    // Previously `role = userData.role || "user"` let anyone self-assign
-    // "admin" by sending { "role": "admin" } on signup. Every new
-    // registration is forced to "user"; becoming a host happens only
-    // through createHostProfile() below, and becoming an admin only
-    // through an authenticated admin-only endpoint you control separately.
-    const role = "user";
+    const requestedRole = String(userData.role || "user").toLowerCase();
 
-    if (
-      userData.role &&
-      !SELF_ASSIGNABLE_ROLES.includes(userData.role)
-    ) {
+    // Only these roles can be selected during public registration.
+    const role = SELF_ASSIGNABLE_ROLES.includes(requestedRole)
+      ? requestedRole
+      : "user";
+
+    // Users become active immediately.
+    // Hosts remain pending until host verification/approval.
+    const status = role === "host" ? USER_STATUS.PENDING : USER_STATUS.ACTIVE;
+
+    console.log("👤 Registration role:", role);
+    console.log("📌 Registration status:", status);
+
+    if (userData.role && !SELF_ASSIGNABLE_ROLES.includes(requestedRole)) {
       console.warn(
-        `⚠️ Registration attempted to set disallowed role "${userData.role}" — ignored.`
+        `⚠️ Registration attempted to set disallowed role "${requestedRole}" — using "user".`,
       );
     }
-
     // ----------------------------------------------------------
     // Validate required fields
     // ----------------------------------------------------------
     if (!name || !email || !password || !phone_number) {
       throw new Error(
-        "All fields are required: name, email, password, phone_number"
+        "All fields are required: name, email, password, phone_number",
       );
     }
 
@@ -234,7 +236,7 @@ class AuthService {
         const emailResult = await emailService.sendVerificationEmail(
           email,
           name,
-          verificationToken
+          verificationToken,
         );
 
         if (emailResult.success) {
@@ -288,10 +290,7 @@ class AuthService {
         data: { refresh_token_hash: this.hashToken(tokens.refreshToken) },
       });
     } catch (error) {
-      console.error(
-        "❌ Failed to store refresh token hash:",
-        error.message
-      );
+      console.error("❌ Failed to store refresh token hash:", error.message);
     }
 
     // ============================================================
@@ -318,7 +317,8 @@ class AuthService {
     // SECURITY: generic message regardless of whether the email exists,
     // to prevent account enumeration. Previously "User not found" vs
     // "Invalid credentials" told an attacker which emails are registered.
-    const invalidCredentialsError = () => new Error("Invalid email or password");
+    const invalidCredentialsError = () =>
+      new Error("Invalid email or password");
 
     if (!user) {
       throw invalidCredentialsError();
@@ -359,17 +359,14 @@ class AuthService {
         await emailService.sendVerificationEmail(
           user.email,
           user.name,
-          newToken
+          newToken,
         );
       } catch (error) {
-        console.error(
-          "❌ Failed to send verification email:",
-          error.message
-        );
+        console.error("❌ Failed to send verification email:", error.message);
       }
 
       const error = new Error(
-        "Please verify your email address before logging in"
+        "Please verify your email address before logging in",
       );
       error.code = "EMAIL_NOT_VERIFIED";
 
@@ -478,10 +475,7 @@ class AuthService {
         data: { refresh_token_hash: this.hashToken(tokens.refreshToken) },
       });
     } catch (error) {
-      console.error(
-        "❌ Failed to store refresh token hash:",
-        error.message
-      );
+      console.error("❌ Failed to store refresh token hash:", error.message);
     }
 
     // ============================================================
@@ -520,7 +514,7 @@ class AuthService {
           requiresIdUpload,
           isHostApproved,
         },
-        3600
+        3600,
       );
     } catch (error) {
       console.error("❌ Failed to cache user:", error.message);
@@ -633,7 +627,10 @@ class AuthService {
   // ============================================================
   async verifyEmail(token) {
     if (!token) {
-      return { error: "invalid-token", message: "No verification token provided" };
+      return {
+        error: "invalid-token",
+        message: "No verification token provided",
+      };
     }
 
     const user = await prisma.user.findFirst({
@@ -741,7 +738,7 @@ class AuthService {
       await emailService.sendPasswordResetEmail(
         normalizedEmail,
         user.name,
-        resetToken
+        resetToken,
       );
     } catch (error) {
       console.error("Failed to send password reset email:", error);
@@ -865,7 +862,7 @@ class AuthService {
 
     const isMatch = await this.comparePassword(
       currentPassword,
-      user.password_hash
+      user.password_hash,
     );
 
     if (!isMatch) {
@@ -937,7 +934,11 @@ class AuthService {
     }
 
     try {
-      await emailService.sendVerificationEmail(user.email, user.name, tokenToSend);
+      await emailService.sendVerificationEmail(
+        user.email,
+        user.name,
+        tokenToSend,
+      );
     } catch (error) {
       console.error("Failed to send verification email:", error.message);
       // Still return the generic response.
@@ -1015,13 +1016,11 @@ class AuthService {
     const emailResult = await emailService.sendVerificationEmail(
       user.email,
       user.name,
-      verificationToken
+      verificationToken,
     );
 
     if (!emailResult.success) {
-      throw new Error(
-        emailResult.error || "Failed to send verification email"
-      );
+      throw new Error(emailResult.error || "Failed to send verification email");
     }
 
     return {

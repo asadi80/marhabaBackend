@@ -1934,8 +1934,9 @@ const approveUserId = asyncHandler(async (req, res) => {
       where: { user_id: user.id },
     });
 
-    const allApproved = allDocuments.every(doc => doc.status === "approved");
-
+const allApproved =
+  allDocuments.length > 0 &&
+  allDocuments.every(doc => doc.status === "approved");
     // Update host details
     const hostDetails = user.host_details || {};
 
