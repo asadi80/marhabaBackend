@@ -16,6 +16,7 @@ const AdminRoutes = require("./routes/adminRoutes");
 const databaseRoutes = require("./routes/databaseRoutes");
 const hostBlockedUserRoutes = require("./routes/hostBlockedUserRoutes");
 const statsRoutes = require("./routes/statsRoutes")
+const moamalatRoutes = require("./routes/moamalatRoutes");
 const app = express();
 const logger = require("./middleware/logger");
 
@@ -123,6 +124,8 @@ app.use("/api/v1/uploads", uploadRoutes);
 app.use("/api/v1/database", databaseRoutes);
 app.use("/api/v1/host", hostBlockedUserRoutes);
 app.use("/api/v1/stats", statsRoutes);
+app.use("/api/v1/payments", moamalatRoutes);
+
 
 // Root route
 app.get("/", (req, res) => {
