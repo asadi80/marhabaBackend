@@ -27,9 +27,11 @@ const SUBSCRIPTION_DURATION_DAYS = 182;
 function buildSecureHash(fields) {
   const sortedKeys = Object.keys(fields).sort();
 
-  const dataToHash = sortedKeys
-    .map((key) => `${key}=${fields[key]}`)
-    .join("&");
+  const dataToHash = sortedKeys.map((key) => `${key}=${fields[key]}`).join("&");
+
+  // Debug log — verify the exact string being hashed.
+  // Remove this once payments are confirmed working in production.
+  console.log("🔐 Hash input:", dataToHash);
 
   return crypto
     .createHmac("sha256", Buffer.from(SECRET_KEY, "hex"))
@@ -39,15 +41,18 @@ function buildSecureHash(fields) {
 }
 
 // ============================================================
-// HELPER: Format date as yyyyMMddHHmm
+// HELPER: Format date as yyyyMMddHHmm (Libya local time, UTC+2)
 // ============================================================
 function formatTrxDateTime(date = new Date()) {
+  // Convert to Libya local time (UTC+2)
+  const libyaTime = new Date(date.getTime() + 2 * 60 * 60 * 1000);
+
   return (
-    date.getFullYear().toString() +
-    String(date.getMonth() + 1).padStart(2, "0") +
-    String(date.getDate()).padStart(2, "0") +
-    String(date.getHours()).padStart(2, "0") +
-    String(date.getMinutes()).padStart(2, "0")
+    libyaTime.getUTCFullYear().toString() +
+    String(libyaTime.getUTCMonth() + 1).padStart(2, "0") +
+    String(libyaTime.getUTCDate()).padStart(2, "0") +
+    String(libyaTime.getUTCHours()).padStart(2, "0") +
+    String(libyaTime.getUTCMinutes()).padStart(2, "0")
   );
 }
 
@@ -55,6 +60,10 @@ function formatTrxDateTime(date = new Date()) {
 // @desc    Initiate a Moamalat subscription payment
 // @route   POST /api/v1/payments/moamalat/initiate
 // @access  Private (Host only)
+//
+// NOTE: This endpoint does NOT write to the database.
+// The payment record is created only inside `verifyMoamalatPayment`
+// after Moamalat confirms the payment was completed successfully.
 // ============================================================
 const initiateMoamalatPayment = asyncHandler(async (req, res) => {
   // ----------------------------------------------------------
@@ -97,58 +106,40 @@ const initiateMoamalatPayment = asyncHandler(async (req, res) => {
   // Amount in smallest unit (LYD * 1000)
   const amountTrxn = String(Math.round(SUBSCRIPTION_AMOUNT_LYD * 1000));
 
-  // Unique merchant reference (max 50 chars per Moamalat)
+  // Unique merchant reference
   const merchantReference = `SUB-${userId.slice(0, 8)}-${Date.now()}`;
 
-  // yyyyMMddHHmm
+  // yyyyMMddHHmm in Libya local time
   const trxDateTime = formatTrxDateTime();
 
   // ----------------------------------------------------------
-  // REQUEST SECURE HASH
-  // Fields (sorted alphabetically by Moamalat rules):
-  //   Amount, DateTimeLocalTrxn, MerchantId, MerchantReference, TerminalId
+  // BUILD SECURE HASH
+  //
+  // Field names MUST match exactly what the Lightbox's
+  // `configure` object sends (see frontend):
+  //   MID, TID, AmountTrxn, MerchantReference, TrxDateTime, SecureHash
+  //
+  // Hash input (alphabetical by key):
+  //   AmountTrxn, MerchantId, MerchantReference, TerminalId, TrxDateTime
   // ----------------------------------------------------------
   const secureHash = buildSecureHash({
     AmountTrxn: amountTrxn,
-    trxDateTime: trxDateTime,
     MerchantId: MID,
     MerchantReference: merchantReference,
     TerminalId: TID,
+    TrxDateTime: trxDateTime,
   });
-
-  // ----------------------------------------------------------
-  // SAVE PENDING PAYMENT RECORD (matches Prisma schema)
-  // ----------------------------------------------------------
-  let pendingPayment;
-  try {
-    pendingPayment = await prisma.hostSubscriptionPayment.create({
-      data: {
-        host_id: userId,
-        amount: SUBSCRIPTION_AMOUNT_LYD,
-        status: "pending",
-        reference: merchantReference,
-        receipt_images: [],
-        notes: "Initiated via Moamalat Lightbox",
-      },
-    });
-  } catch (dbError) {
-    console.error("❌ Failed to save pending payment:", dbError);
-    return res.status(500).json({
-      success: false,
-      message: "Could not create payment record",
-      code: "PAYMENT_RECORD_FAILED",
-    });
-  }
 
   console.log("✅ Moamalat payment initiated:", {
     userId,
     merchantReference,
     amountTrxn,
-    paymentId: pendingPayment.id,
+    trxDateTime,
   });
 
   // ----------------------------------------------------------
   // RETURN CONFIG TO FRONTEND LIGHTBOX
+  // (no DB write — DB record is created on verified success)
   // ----------------------------------------------------------
   return res.status(200).json({
     success: true,
@@ -168,6 +159,10 @@ const initiateMoamalatPayment = asyncHandler(async (req, res) => {
 // @desc    Verify Moamalat callback & activate subscription
 // @route   POST /api/v1/payments/moamalat/verify
 // @access  Private (Host only)
+//
+// The payment record is created here ONLY when the payment
+// is confirmed successful. Failed/cancelled attempts leave
+// no trace in the database.
 // ============================================================
 const verifyMoamalatPayment = asyncHandler(async (req, res) => {
   // ----------------------------------------------------------
@@ -185,9 +180,6 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
 
   // ----------------------------------------------------------
   // EXTRACT CALLBACK PAYLOAD
-  //
-  // Frontend forwards everything from Moamalat's `completeCallback`.
-  // Exact case matters — these are the field names from the docs.
   // ----------------------------------------------------------
   const {
     outcome,
@@ -203,11 +195,15 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
     TxnDate,
     SecureHash: callbackHash,
     error,
-    DateTimeLocalTrxn,
+    ResponseCode,
+    ResponseMessage,
   } = req.body;
 
   // ----------------------------------------------------------
   // HANDLE NON-COMPLETED OUTCOMES EARLY
+  //
+  // Cancelled / failed / user-abandoned payments do NOT
+  // touch the database. No pending record was created.
   // ----------------------------------------------------------
   if (outcome !== "completed") {
     console.log("⚠️ Moamalat payment not completed:", {
@@ -215,36 +211,20 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
       outcome,
       error,
       MerchantReference,
+      ResponseCode,
+      ResponseMessage,
     });
-
-    if (MerchantReference) {
-      try {
-        await prisma.hostSubscriptionPayment.updateMany({
-          where: {
-            reference: MerchantReference,
-            host_id: userId,
-            status: "pending",
-          },
-          data: {
-            status: "rejected",
-            notes:
-              outcome === "cancelled"
-                ? "Cancelled by user"
-                : `Failed: ${error || "Unknown error"}`,
-          },
-        });
-      } catch (dbError) {
-        console.error("⚠️ Failed to mark payment as failed:", dbError);
-      }
-    }
 
     return res.status(200).json({
       success: false,
       message:
         outcome === "cancelled"
           ? "Payment was cancelled"
-          : "Payment failed",
+          : ResponseMessage || error || "Payment failed",
       code: outcome === "cancelled" ? "PAYMENT_CANCELLED" : "PAYMENT_FAILED",
+      // NEW — forward the gateway response
+      responseCode: ResponseCode || null,
+      responseMessage: ResponseMessage || error || null,
     });
   }
 
@@ -252,7 +232,7 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
   // VERIFY SECURE HASH FROM CALLBACK
   //
   // Per docs, complete callback hash uses:
-  //   Amount, Currency, MerchantId, MerchantReference,
+  //   AmountTrxn, Currency, MerchantId, MerchantReference,
   //   PaidThrough, TerminalId, TxnDate
   // ----------------------------------------------------------
   if (!callbackHash) {
@@ -288,28 +268,17 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
   }
 
   // ----------------------------------------------------------
-  // FIND THE PENDING PAYMENT
+  // IDEMPOTENCY — was this already processed?
   // ----------------------------------------------------------
-  const payment = await prisma.hostSubscriptionPayment.findFirst({
+  const existing = await prisma.hostSubscriptionPayment.findFirst({
     where: {
       reference: MerchantReference,
       host_id: userId,
     },
-    orderBy: {
-      created_at: "desc",
-    },
+    orderBy: { created_at: "desc" },
   });
 
-  if (!payment) {
-    return res.status(404).json({
-      success: false,
-      message: "Payment record not found",
-      code: "PAYMENT_NOT_FOUND",
-    });
-  }
-
-  // Idempotency — already processed
-  if (payment.status === "approved") {
+  if (existing && existing.status === "approved") {
     return res.status(200).json({
       success: true,
       message: "Payment already approved",
@@ -343,13 +312,18 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
   );
 
   // ----------------------------------------------------------
-  // ATOMIC UPDATE: payment + user
+  // CREATE RECORD + UPDATE USER (atomic)
+  //
+  // Only runs after successful hash verification.
   // ----------------------------------------------------------
   const result = await prisma.$transaction(async (tx) => {
-    const updatedPayment = await tx.hostSubscriptionPayment.update({
-      where: { id: payment.id },
+    const createdPayment = await tx.hostSubscriptionPayment.create({
       data: {
+        host_id: userId,
+        amount: SUBSCRIPTION_AMOUNT_LYD,
         status: "approved",
+        reference: MerchantReference,
+        receipt_images: [],
         paid_at: now,
         period_start: periodStart,
         period_end: periodEnd,
@@ -372,7 +346,7 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
       },
     });
 
-    return { payment: updatedPayment, user: updatedUser };
+    return { payment: createdPayment, user: updatedUser };
   });
 
   // ----------------------------------------------------------
