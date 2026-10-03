@@ -12,7 +12,7 @@ const TID = process.env.MOAMALAT_TERMINAL_ID;
 const SECRET_KEY = process.env.MOAMALAT_SECRET_KEY;
 
 // Subscription pricing / duration
-const SUBSCRIPTION_AMOUNT_LYD = 50;
+const SUBSCRIPTION_AMOUNT_LYD = 500;
 const SUBSCRIPTION_DURATION_DAYS = 182;
 
 // ============================================================
