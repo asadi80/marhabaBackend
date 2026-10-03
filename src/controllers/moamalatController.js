@@ -109,7 +109,7 @@ const initiateMoamalatPayment = asyncHandler(async (req, res) => {
   //   Amount, DateTimeLocalTrxn, MerchantId, MerchantReference, TerminalId
   // ----------------------------------------------------------
   const secureHash = buildSecureHash({
-    Amount: amountTrxn,
+    AmountTrxn: amountTrxn,
     DateTimeLocalTrxn: trxDateTime,
     MerchantId: MID,
     MerchantReference: merchantReference,
