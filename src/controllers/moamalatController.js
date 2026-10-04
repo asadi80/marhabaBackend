@@ -123,11 +123,11 @@ const initiateMoamalatPayment = asyncHandler(async (req, res) => {
   //   AmountTrxn, MerchantId, MerchantReference, TerminalId, TrxDateTime
   // ----------------------------------------------------------
   const secureHash = buildSecureHash({
-    AmountTrxn: amountTrxn,
+    Amount: amountTrxn,
+    DateTimeLocalTrxn: trxDateTime,
     MerchantId: MID,
     MerchantReference: merchantReference,
     TerminalId: TID,
-    TrxDateTime: trxDateTime,
   });
 
   console.log("✅ Moamalat payment initiated:", {
@@ -206,27 +206,27 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
   // touch the database. No pending record was created.
   // ----------------------------------------------------------
   if (outcome !== "completed") {
-  console.log("⚠️ Moamalat payment not completed:", {
-    userId,
-    outcome,
-    error,
-    MerchantReference,
-    ResponseCode,
-    ResponseMessage,
-  });
+    console.log("⚠️ Moamalat payment not completed:", {
+      userId,
+      outcome,
+      error,
+      MerchantReference,
+      ResponseCode,
+      ResponseMessage,
+    });
 
-  return res.status(200).json({
-    success: false,
-    message:
-      outcome === "cancelled"
-        ? "Payment was cancelled"
-        : ResponseMessage || error || "Payment failed",
-    code: outcome === "cancelled" ? "PAYMENT_CANCELLED" : "PAYMENT_FAILED",
-    // NEW — forward the gateway response
-    responseCode: ResponseCode || null,
-    responseMessage: ResponseMessage || error || null,
-  });
-}
+    return res.status(200).json({
+      success: false,
+      message:
+        outcome === "cancelled"
+          ? "Payment was cancelled"
+          : ResponseMessage || error || "Payment failed",
+      code: outcome === "cancelled" ? "PAYMENT_CANCELLED" : "PAYMENT_FAILED",
+      // NEW — forward the gateway response
+      responseCode: ResponseCode || null,
+      responseMessage: ResponseMessage || error || null,
+    });
+  }
 
   // ----------------------------------------------------------
   // VERIFY SECURE HASH FROM CALLBACK
