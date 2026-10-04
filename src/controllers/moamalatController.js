@@ -15,6 +15,14 @@ const SECRET_KEY = process.env.MOAMALAT_SECRET_KEY;
 const SUBSCRIPTION_AMOUNT_LYD = 500;
 const SUBSCRIPTION_DURATION_DAYS = 182;
 
+// Amount in smallest unit (LYD * 1000)
+const EXPECTED_AMOUNT_TRXN = String(
+  Math.round(SUBSCRIPTION_AMOUNT_LYD * 1000),
+);
+
+// Set to false once the callback hash is confirmed working
+const DEBUG_HASH_SEARCH = true;
+
 // ============================================================
 // HELPER: Build SHA-256 HMAC uppercase hex
 //
@@ -24,14 +32,15 @@ const SUBSCRIPTION_DURATION_DAYS = 182;
 //   3. HMAC-SHA256 with hex-decoded secret key
 //   4. Encode as uppercase hex
 // ============================================================
-function buildSecureHash(fields) {
+function buildSecureHash(fields, { silent = false } = {}) {
   const sortedKeys = Object.keys(fields).sort();
 
   const dataToHash = sortedKeys.map((key) => `${key}=${fields[key]}`).join("&");
 
-  // Debug log — verify the exact string being hashed.
-  // Remove this once payments are confirmed working in production.
-  console.log("🔐 Hash input:", dataToHash);
+  if (!silent) {
+    // Remove once payments are confirmed working in production.
+    console.log("🔐 Hash input:", dataToHash);
+  }
 
   return crypto
     .createHmac("sha256", Buffer.from(SECRET_KEY, "hex"))
@@ -44,7 +53,6 @@ function buildSecureHash(fields) {
 // HELPER: Format date as yyyyMMddHHmm (Libya local time, UTC+2)
 // ============================================================
 function formatTrxDateTime(date = new Date()) {
-  // Convert to Libya local time (UTC+2)
   const libyaTime = new Date(date.getTime() + 2 * 60 * 60 * 1000);
 
   return (
@@ -54,6 +62,57 @@ function formatTrxDateTime(date = new Date()) {
     String(libyaTime.getUTCHours()).padStart(2, "0") +
     String(libyaTime.getUTCMinutes()).padStart(2, "0")
   );
+}
+
+// ============================================================
+// TEMPORARY DEBUG: find which field set the gateway signed.
+// Only runs when the expected hash does not match.
+// Remove (or set DEBUG_HASH_SEARCH = false) once the match is known.
+// ============================================================
+function debugSearchCallbackHash(payload, callbackHash) {
+  const optionalFields = [
+    "Currency",
+    "PaidThrough",
+    "TxnDate",
+    "SystemReference",
+    "NetworkReference",
+    "PayerAccount",
+    "PayerName",
+    "CustomerId",
+    "ProviderSchemeName",
+  ];
+
+  const received = String(callbackHash).toUpperCase();
+  let found = false;
+
+  for (const amountKey of ["Amount", "AmountTrxn"]) {
+    for (const midKey of ["MerchantId", "MID", null]) {
+      for (const tidKey of ["TerminalId", "TID", null]) {
+        for (let mask = 0; mask < 1 << optionalFields.length; mask++) {
+          const fields = {
+            [amountKey]: payload.Amount,
+            MerchantReference: payload.MerchantReference,
+          };
+
+          if (midKey) fields[midKey] = MID;
+          if (tidKey) fields[tidKey] = TID;
+
+          optionalFields.forEach((f, i) => {
+            if (mask & (1 << i)) fields[f] = payload[f] ?? "";
+          });
+
+          if (buildSecureHash(fields, { silent: true }) === received) {
+            console.log("🎯 HASH MATCH. Use exactly these fields:", fields);
+            found = true;
+          }
+        }
+      }
+    }
+  }
+
+  if (!found) {
+    console.log("❌ Debug search: no combination matched");
+  }
 }
 
 // ============================================================
@@ -103,10 +162,9 @@ const initiateMoamalatPayment = asyncHandler(async (req, res) => {
   // ----------------------------------------------------------
   // BUILD TRANSACTION DATA
   // ----------------------------------------------------------
-  // Amount in smallest unit (LYD * 1000)
-  const amountTrxn = String(Math.round(SUBSCRIPTION_AMOUNT_LYD * 1000));
+  const amountTrxn = EXPECTED_AMOUNT_TRXN;
 
-  // Unique merchant reference
+  // Unique merchant reference (prefix is checked again on verify)
   const merchantReference = `SUB-${userId.slice(0, 8)}-${Date.now()}`;
 
   // yyyyMMddHHmm in Libya local time
@@ -115,12 +173,11 @@ const initiateMoamalatPayment = asyncHandler(async (req, res) => {
   // ----------------------------------------------------------
   // BUILD SECURE HASH
   //
-  // Field names MUST match exactly what the Lightbox's
-  // `configure` object sends (see frontend):
-  //   MID, TID, AmountTrxn, MerchantReference, TrxDateTime, SecureHash
+  // The Lightbox config uses: MID, TID, AmountTrxn, MerchantReference,
+  // TrxDateTime, SecureHash.
   //
-  // Hash input (alphabetical by key):
-  //   AmountTrxn, MerchantId, MerchantReference, TerminalId, TrxDateTime
+  // The hash string uses different key names (alphabetical):
+  //   Amount, DateTimeLocalTrxn, MerchantId, MerchantReference, TerminalId
   // ----------------------------------------------------------
   const secureHash = buildSecureHash({
     Amount: amountTrxn,
@@ -222,7 +279,6 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
           ? "Payment was cancelled"
           : ResponseMessage || error || "Payment failed",
       code: outcome === "cancelled" ? "PAYMENT_CANCELLED" : "PAYMENT_FAILED",
-      // NEW — forward the gateway response
       responseCode: ResponseCode || null,
       responseMessage: ResponseMessage || error || null,
     });
@@ -230,10 +286,6 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
 
   // ----------------------------------------------------------
   // VERIFY SECURE HASH FROM CALLBACK
-  //
-  // Per docs, complete callback hash uses:
-  //   AmountTrxn, Currency, MerchantId, MerchantReference,
-  //   PaidThrough, TerminalId, TxnDate
   // ----------------------------------------------------------
   if (!callbackHash) {
     return res.status(400).json({
@@ -243,8 +295,9 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
     });
   }
 
+  // Callback payload uses `Amount` (not `AmountTrxn`) as the key.
   const expectedHash = buildSecureHash({
-    AmountTrxn: Amount,
+    Amount: Amount,
     Currency: Currency,
     MerchantId: MID,
     MerchantReference: MerchantReference,
@@ -253,17 +306,55 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
     TxnDate: TxnDate,
   });
 
-  if (expectedHash !== callbackHash) {
+  if (expectedHash !== String(callbackHash).toUpperCase()) {
     console.error("❌ SecureHash mismatch:", {
       expected: expectedHash,
       received: callbackHash,
       MerchantReference,
     });
 
+    if (DEBUG_HASH_SEARCH) {
+      debugSearchCallbackHash(req.body, callbackHash);
+    }
+
     return res.status(400).json({
       success: false,
       message: "Invalid SecureHash",
       code: "INVALID_SECURE_HASH",
+    });
+  }
+
+  // ----------------------------------------------------------
+  // SANITY CHECKS (after the hash is verified)
+  // - reference must have been issued to this user
+  // - amount must match the subscription price
+  // ----------------------------------------------------------
+  const expectedRefPrefix = `SUB-${userId.slice(0, 8)}-`;
+
+  if (!MerchantReference || !MerchantReference.startsWith(expectedRefPrefix)) {
+    console.error("❌ MerchantReference does not belong to user:", {
+      userId,
+      MerchantReference,
+    });
+
+    return res.status(400).json({
+      success: false,
+      message: "Invalid payment reference",
+      code: "INVALID_REFERENCE",
+    });
+  }
+
+  if (String(Amount) !== EXPECTED_AMOUNT_TRXN) {
+    console.error("❌ Unexpected amount:", {
+      expected: EXPECTED_AMOUNT_TRXN,
+      received: Amount,
+      MerchantReference,
+    });
+
+    return res.status(400).json({
+      success: false,
+      message: "Payment amount mismatch",
+      code: "AMOUNT_MISMATCH",
     });
   }
 
