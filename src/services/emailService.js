@@ -2406,6 +2406,169 @@ Marhaba Team
       html: emailHtml,
     });
   }
+
+  /**
+   * Send host subscription payment received, awaiting admin approval
+   */
+  async sendHostPaymentAwaitingApprovalEmail(host, payment) {
+    const appUrl = process.env.BASE_URL || "https://mar-haba.ly";
+    const formattedPaidAt = this.formatDateForEmail(payment.paidAt);
+    const formattedPeriodEnd = this.formatDateForEmail(payment.periodEnd);
+
+    const emailHtml = `
+<div style="font-family: Arial, 'Cairo', 'Tajawal', sans-serif; max-width: 600px; margin: auto; padding: 20px; background: #f7f6f2;">
+  <div style="text-align: center; margin-bottom: 20px;">
+    <h1 style="color: #1a1a2e;">مر<span style="color: #e8c547;">حبا</span></h1>
+  </div>
+
+  <!-- English Section -->
+  <div style="margin-bottom: 30px;">
+    <h2 style="color: #4F46E5;">⏳ Payment Received — Awaiting Approval</h2>
+    <p>Dear ${host.name},</p>
+    <p>
+      Thank you! We have successfully received your subscription payment
+      of <strong>LYD ${payment.amount}</strong> via Moamalat.
+    </p>
+
+    <div style="background: #EEF2FF; padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid #4F46E5;">
+      <h3 style="color: #4F46E5; margin-top: 0;">💳 Payment Details</h3>
+      <p><strong>Amount:</strong> LYD ${payment.amount}</p>
+      <p><strong>Reference:</strong> ${payment.reference}</p>
+      ${payment.systemReference ? `<p><strong>System Reference:</strong> ${payment.systemReference}</p>` : ""}
+      <p><strong>Paid At:</strong> ${formattedPaidAt}</p>
+      <p><strong>Subscription Valid Until:</strong> ${formattedPeriodEnd}</p>
+    </div>
+
+    <div style="background: #FEF3C7; padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid #F59E0B;">
+      <h3 style="color: #F59E0B; margin-top: 0;">⏳ What happens next?</h3>
+      <p>
+        Your payment has been received and is now <strong>pending final
+        approval</strong> from our admin team.
+      </p>
+      <p>
+        Your host account status will be updated to <strong>Active</strong>
+        once all your requirements are verified and approved.
+      </p>
+      <p style="margin-bottom: 0;">
+        This usually takes 24–48 hours. You will receive another email
+        as soon as your account is activated.
+      </p>
+    </div>
+
+    <div style="text-align: center; margin: 25px 0;">
+      <a
+        href="${appUrl}/host-dashboard"
+        style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;"
+      >
+        Go to Host Dashboard →
+      </a>
+    </div>
+
+    <p>Thank you for choosing Marhaba.</p>
+    <p>Best regards,<br>Marhaba Team</p>
+  </div>
+
+  <div style="border-top: 2px solid #e5e7eb; margin: 25px 0;"></div>
+
+  <!-- Arabic Section -->
+  <div style="direction: rtl; text-align: right;">
+    <h2 style="color: #4F46E5;">⏳ تم استلام الدفعة — بانتظار الموافقة</h2>
+    <p>عزيزي ${host.name}،</p>
+    <p>
+      شكراً لك! لقد استلمنا دفعة اشتراكك بمبلغ
+      <strong>${payment.amount} دينار</strong> عبر معاملات بنجاح.
+    </p>
+
+    <div style="background: #EEF2FF; padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid #4F46E5;">
+      <h3 style="color: #4F46E5; margin-top: 0;">💳 تفاصيل الدفعة</h3>
+      <p><strong>المبلغ:</strong> ${payment.amount} دينار</p>
+      <p><strong>المرجع:</strong> ${payment.reference}</p>
+      ${payment.systemReference ? `<p><strong>مرجع النظام:</strong> ${payment.systemReference}</p>` : ""}
+      <p><strong>تاريخ الدفع:</strong> ${formattedPaidAt}</p>
+      <p><strong>الاشتراك ساري حتى:</strong> ${formattedPeriodEnd}</p>
+    </div>
+
+    <div style="background: #FEF3C7; padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid #F59E0B;">
+      <h3 style="color: #F59E0B; margin-top: 0;">⏳ ماذا بعد؟</h3>
+      <p>
+        تم استلام دفعتك بنجاح، وهي الآن <strong>بانتظار الموافقة النهائية</strong>
+        من فريق الإدارة.
+      </p>
+      <p>
+        سيتم تحديث حالة حسابك كمضيف إلى <strong>نشط</strong> بمجرد
+        التحقق من استكمال جميع المتطلبات والموافقة عليها.
+      </p>
+      <p style="margin-bottom: 0;">
+        عادة ما تستغرق هذه العملية 24–48 ساعة. ستصلك رسالة أخرى
+        بمجرد تفعيل حسابك.
+      </p>
+    </div>
+
+    <div style="text-align: center; margin: 25px 0;">
+      <a
+        href="${appUrl}/host-dashboard"
+        style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;"
+      >
+        الذهاب إلى لوحة التحكم ←
+      </a>
+    </div>
+
+    <p>شكراً لاختيارك مرحبا.</p>
+    <p>مع أطيب التحيات،<br>فريق مرحبا</p>
+  </div>
+</div>
+  `;
+
+    const text = `
+Dear ${host.name},
+
+Thank you! We have successfully received your subscription payment of LYD ${payment.amount} via Moamalat.
+
+Payment Details:
+Amount: LYD ${payment.amount}
+Reference: ${payment.reference}
+${payment.systemReference ? `System Reference: ${payment.systemReference}` : ""}
+Paid At: ${formattedPaidAt}
+Subscription Valid Until: ${formattedPeriodEnd}
+
+Your payment is now pending final approval from our admin team.
+Your host account status will be updated to Active once all your requirements are verified and approved.
+
+This usually takes 24-48 hours. You will receive another email as soon as your account is activated.
+
+Best regards,
+Marhaba Team
+
+---
+
+عزيزي ${host.name}،
+
+شكراً لك! لقد استلمنا دفعة اشتراكك بمبلغ ${payment.amount} دينار عبر معاملات بنجاح.
+
+تفاصيل الدفعة:
+المبلغ: ${payment.amount} دينار
+المرجع: ${payment.reference}
+${payment.systemReference ? `مرجع النظام: ${payment.systemReference}` : ""}
+تاريخ الدفع: ${formattedPaidAt}
+الاشتراك ساري حتى: ${formattedPeriodEnd}
+
+دفعتك الآن بانتظار الموافقة النهائية من فريق الإدارة.
+سيتم تحديث حالة حسابك كمضيف إلى نشط بمجرد التحقق من استكمال جميع المتطلبات والموافقة عليها.
+
+عادة ما تستغرق هذه العملية 24-48 ساعة. ستصلك رسالة أخرى بمجرد تفعيل حسابك.
+
+مع أطيب التحيات،
+فريق مرحبا
+  `;
+
+    return this.sendEmail({
+      to: host.email,
+      subject:
+        "Payment Received — Awaiting Approval / تم استلام الدفعة — بانتظار الموافقة - Marhaba",
+      text,
+      html: emailHtml,
+    });
+  }
 }
 
 module.exports = new EmailService();

@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const { prisma } = require("../config/database");
 const { redisHelpers } = require("../config/redis");
 const { asyncHandler } = require("../middleware/errorHandler");
+const emailService = require("../services/emailService");
 
 // ============================================================
 // MOAMALAT CREDENTIALS (from .env)
@@ -16,9 +17,7 @@ const SUBSCRIPTION_AMOUNT_LYD = 500;
 const SUBSCRIPTION_DURATION_DAYS = 182;
 
 // Amount in smallest unit (LYD * 1000)
-const EXPECTED_AMOUNT_TRXN = String(
-  Math.round(SUBSCRIPTION_AMOUNT_LYD * 1000),
-);
+const EXPECTED_AMOUNT_TRXN = String(Math.round(SUBSCRIPTION_AMOUNT_LYD * 1000));
 
 // Set to false once the callback hash is confirmed working
 const DEBUG_HASH_SEARCH = true;
@@ -427,11 +426,12 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
     const updatedUser = await tx.user.update({
       where: { id: userId },
       data: {
-        status: "active",
         host_expiry_date: periodEnd,
       },
       select: {
         id: true,
+        name: true,
+        email: true,
         status: true,
         host_expiry_date: true,
       },
@@ -448,6 +448,31 @@ const verifyMoamalatPayment = asyncHandler(async (req, res) => {
     await redisHelpers.deletePattern("listings:*");
   } catch (cacheError) {
     console.warn("⚠️ Cache clear failed:", cacheError);
+  }
+  // ----------------------------------------------------------
+  // SEND "PAYMENT RECEIVED, AWAITING APPROVAL" EMAIL
+  // Only on the first successful verification (idempotency
+  // guard above already returned early on repeats).
+  // Email failure must NOT roll back the payment.
+  // ----------------------------------------------------------
+  try {
+    await emailService.sendHostPaymentAwaitingApprovalEmail(
+      { name: result.user.name, email: result.user.email },
+      {
+        amount: SUBSCRIPTION_AMOUNT_LYD,
+        reference: MerchantReference,
+        systemReference: SystemReference || null,
+        paidAt: now,
+        periodStart,
+        periodEnd,
+      },
+    );
+
+    console.log("📧 Payment awaiting-approval email sent:", {
+      to: result.user.email,
+    });
+  } catch (emailError) {
+    console.error("❌ Awaiting-approval email failed:", emailError);
   }
 
   console.log("✅ Moamalat payment verified:", {
