@@ -111,7 +111,7 @@ class AuthService {
   // ============================================================
   // REGISTER USER
   // ============================================================
-  async register(userData) {
+  async register(userData, deviceInfo = {}) {
     console.log("📝 Registering user:", {
       email: userData.email,
       name: userData.name,
@@ -273,6 +273,11 @@ class AuthService {
       session = await prisma.userSession.create({
         data: {
           user_id: user.id,
+          device: deviceInfo.device || "unknown",
+          browser: deviceInfo.browser || "unknown",
+          os: deviceInfo.os || "unknown",
+          ip_address: deviceInfo.ip || "unknown",
+          user_agent: deviceInfo.userAgent || "unknown",
           is_active: true,
           logged_in_at: new Date(),
         },
