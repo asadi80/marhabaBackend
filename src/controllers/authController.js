@@ -1,7 +1,7 @@
 // src/controllers/authController.js
 
 const { prisma } = require("../config/database");
-const UAParser = require("ua-parser-js");
+
 
 console.log("🔍 Loading authController...");
 console.log("📦 Prisma type:", typeof prisma);
@@ -65,54 +65,14 @@ const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
   // Parse device info from headers
- const userAgent = req.headers["user-agent"] || "";
+  const deviceInfo = {
+    ip: req.ip || req.headers["x-forwarded-for"]?.split(",")[0] || null,
+    userAgent: req.headers["user-agent"] || null,
+    device: req.headers["x-device"] || "desktop",
+    browser: req.headers["x-browser"] || "unknown",
+    os: req.headers["x-os"] || "unknown",
+  };
 
-const parser = new UAParser(userAgent);
-const ua = parser.getResult();
-
-// Device
-let device = "desktop";
-
-if (ua.device?.type === "mobile") {
-  device = "mobile";
-} else if (ua.device?.type === "tablet") {
-  device = "tablet";
-} else if (ua.device?.type === "smarttv") {
-  device = "smart-tv";
-} else if (ua.device?.type === "wearable") {
-  device = "wearable";
-}
-
-// Browser
-const browser = ua.browser?.name
-  ? `${ua.browser.name}${ua.browser.version ? ` ${ua.browser.version}` : ""}`
-  : "unknown";
-
-// Operating system
-const os = ua.os?.name
-  ? `${ua.os.name}${ua.os.version ? ` ${ua.os.version}` : ""}`
-  : "unknown";
-
-// IP
-const forwardedFor = req.headers["x-forwarded-for"];
-
-const ip =
-  (typeof forwardedFor === "string"
-    ? forwardedFor.split(",")[0].trim()
-    : null) ||
-  req.ip ||
-  req.socket?.remoteAddress ||
-  null;
-
-const deviceInfo = {
-  ip,
-  userAgent,
-  device,
-  browser,
-  os,
-};
-
-console.log("📱 Login device information:", deviceInfo);
   try {
     const result = await authService.login(email, password, deviceInfo);
 
