@@ -1,6 +1,7 @@
 // src/controllers/authController.js
 
 const { prisma } = require("../config/database");
+const UAParser = require("ua-parser-js");
 
 console.log("🔍 Loading authController...");
 console.log("📦 Prisma type:", typeof prisma);
@@ -64,14 +65,54 @@ const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
   // Parse device info from headers
+  const userAgent = req.headers["user-agent"] || "";
+
+  const parser = new UAParser(userAgent);
+  const ua = parser.getResult();
+
+  // Device
+  let device = "desktop";
+
+  if (ua.device?.type === "mobile") {
+    device = "mobile";
+  } else if (ua.device?.type === "tablet") {
+    device = "tablet";
+  } else if (ua.device?.type === "smarttv") {
+    device = "smart-tv";
+  } else if (ua.device?.type === "wearable") {
+    device = "wearable";
+  }
+
+  // Browser
+  const browser = ua.browser?.name
+    ? `${ua.browser.name}${ua.browser.version ? ` ${ua.browser.version}` : ""}`
+    : "unknown";
+
+  // Operating system
+  const os = ua.os?.name
+    ? `${ua.os.name}${ua.os.version ? ` ${ua.os.version}` : ""}`
+    : "unknown";
+
+  // IP
+  const forwardedFor = req.headers["x-forwarded-for"];
+
+  const ip =
+    (typeof forwardedFor === "string"
+      ? forwardedFor.split(",")[0].trim()
+      : null) ||
+    req.ip ||
+    req.socket?.remoteAddress ||
+    null;
+
   const deviceInfo = {
-    ip: req.ip || req.headers["x-forwarded-for"]?.split(",")[0] || null,
-    userAgent: req.headers["user-agent"] || null,
-    device: req.headers["x-device"] || "desktop",
-    browser: req.headers["x-browser"] || "unknown",
-    os: req.headers["x-os"] || "unknown",
+    ip,
+    userAgent,
+    device,
+    browser,
+    os,
   };
 
+  console.log("📱 Login device information:", deviceInfo);
   try {
     const result = await authService.login(email, password, deviceInfo);
 
@@ -185,8 +226,7 @@ const verifyEmail = asyncHandler(async (req, res) => {
 
     const { token } = req.query;
 
-    const frontendUrl =
-      process.env.FRONTEND_URL || "https://mar-haba.ly";
+    const frontendUrl = process.env.FRONTEND_URL || "https://mar-haba.ly";
 
     // ============================================================
     // NO TOKEN
@@ -197,8 +237,8 @@ const verifyEmail = asyncHandler(async (req, res) => {
 
       return res.redirect(
         `${frontendUrl}/verification-result?error=invalid-token&message=${encodeURIComponent(
-          "Invalid verification link. Please request a new one."
-        )}`
+          "Invalid verification link. Please request a new one.",
+        )}`,
       );
     }
 
@@ -224,8 +264,8 @@ const verifyEmail = asyncHandler(async (req, res) => {
           `?status=expired` +
           `&email=${encodeURIComponent(result.email || "")}` +
           `&message=${encodeURIComponent(
-            "Your verification link has expired. Please request a new one."
-          )}`
+            "Your verification link has expired. Please request a new one.",
+          )}`,
       );
     }
 
@@ -241,8 +281,8 @@ const verifyEmail = asyncHandler(async (req, res) => {
           `?status=already-verified` +
           `&email=${encodeURIComponent(result.email || "")}` +
           `&message=${encodeURIComponent(
-            "Email is already verified. You can login now."
-          )}`
+            "Email is already verified. You can login now.",
+          )}`,
       );
     }
 
@@ -257,8 +297,8 @@ const verifyEmail = asyncHandler(async (req, res) => {
         `${frontendUrl}/verification-result` +
           `?error=invalid-token` +
           `&message=${encodeURIComponent(
-            "Invalid verification link. Please request a new one."
-          )}`
+            "Invalid verification link. Please request a new one.",
+          )}`,
       );
     }
 
@@ -293,21 +333,20 @@ const verifyEmail = asyncHandler(async (req, res) => {
       `${frontendUrl}/verification-result` +
         `?error=unknown` +
         `&message=${encodeURIComponent(
-          "Unable to verify your email. Please try again."
-        )}`
+          "Unable to verify your email. Please try again.",
+        )}`,
     );
   } catch (error) {
     console.error("❌ Email verification error:", error);
 
-    const frontendUrl =
-      process.env.FRONTEND_URL || "https://mar-haba.ly";
+    const frontendUrl = process.env.FRONTEND_URL || "https://mar-haba.ly";
 
     return res.redirect(
       `${frontendUrl}/verification-result` +
         `?error=server-error` +
         `&message=${encodeURIComponent(
-          "A server error occurred while verifying your email."
-        )}`
+          "A server error occurred while verifying your email.",
+        )}`,
     );
   }
 });
@@ -581,7 +620,9 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
         (document) =>
           document.status === "approved" || document.status === "verified",
       )
-      .sort((a, b) => new Date(b.reviewed_at || 0) - new Date(a.reviewed_at || 0))[0];
+      .sort(
+        (a, b) => new Date(b.reviewed_at || 0) - new Date(a.reviewed_at || 0),
+      )[0];
 
     const idBlock = {
       uploaded: idUploaded,
@@ -652,10 +693,7 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
     // when the latest payment isn't already approved.
     let finalPaymentStatus = latestPayment ? latestPayment.status : "pending";
 
-    if (
-      paymentRejected &&
-      finalPaymentStatus !== "approved"
-    ) {
+    if (paymentRejected && finalPaymentStatus !== "approved") {
       finalPaymentStatus = "rejected";
     }
 
@@ -697,8 +735,7 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch host verification status",
-      error:
-        process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 });
