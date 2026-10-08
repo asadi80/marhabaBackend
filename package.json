@@ -32,7 +32,6 @@
     "nodemailer": "^9.0.4",
     "pm2": "^7.0.4",
     "sharp": "^0.35.4",
-    "ua-parser-js": "^2.0.10",
     "uuid": "^14.0.1"
   },
   "devDependencies": {
