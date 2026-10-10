@@ -179,9 +179,21 @@ const listingValidators = {
 
     body("location").trim().notEmpty().withMessage("Location is required"),
 
+    // =========================================================
+    // CATEGORY — must match frontend CATEGORIES array exactly
+    // =========================================================
     body("category")
       .optional()
-      .isIn(["city", "mountain", "beach", "countryside"])
+      .isIn([
+        "beachfront",
+        "mountain",
+        "city",
+        "countryside",
+        "pool",
+        "desert",
+        "camping",
+        "cabins",
+      ])
       .withMessage("Invalid category"),
 
     body("amenities")
@@ -226,6 +238,23 @@ const listingValidators = {
       .optional()
       .isFloat({ min: 0.01 })
       .withMessage("Price must be positive"),
+
+    // =========================================================
+    // CATEGORY — same list as create
+    // =========================================================
+    body("category")
+      .optional()
+      .isIn([
+        "beachfront",
+        "mountain",
+        "city",
+        "countryside",
+        "pool",
+        "desert",
+        "camping",
+        "cabins",
+      ])
+      .withMessage("Invalid category"),
 
     body("status")
       .optional()
