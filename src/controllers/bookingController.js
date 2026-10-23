@@ -3,6 +3,7 @@
 const { prisma } = require("../config/database");
 const { redisHelpers } = require("../config/redis");
 const { asyncHandler } = require("../middleware/errorHandler");
+const { DateTime } = require("luxon");
 
 const {
   paginate,
@@ -16,10 +17,38 @@ const emailService = require("../services/emailService");
 // @desc    Create booking
 // @route   POST /api/v1/bookings
 // @access  Private
-const createBooking = asyncHandler(async (req, res) => {
-  const { listing_id, check_in, check_out, guests = 1 } = req.body;
 
-  // Find listing
+const createBooking = asyncHandler(async (req, res) => {
+  const {
+    listing_id,
+    check_in,
+    check_out,
+    guests = 1,
+  } = req.body;
+
+  // Validate required fields
+  if (!listing_id || !check_in || !check_out) {
+    return res.status(400).json({
+      success: false,
+      message: "Listing, check-in, and check-out dates are required",
+    });
+  }
+
+  // Validate guests
+  const guestCount = Number(guests);
+
+  if (
+    !Number.isInteger(guestCount) ||
+    guestCount < 1 ||
+    guestCount > 20
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Guests must be an integer between 1 and 20",
+    });
+  }
+
+  // Find listing and existing bookings
   const listing = await prisma.listing.findUnique({
     where: { id: listing_id },
     include: {
@@ -61,7 +90,7 @@ const createBooking = asyncHandler(async (req, res) => {
     });
   }
 
-  // Prevent host from booking own listing
+  // Prevent host from booking their own listing
   if (listing.host_id === req.user.id) {
     return res.status(400).json({
       success: false,
@@ -69,10 +98,7 @@ const createBooking = asyncHandler(async (req, res) => {
     });
   }
 
-  // ============================================================
-  // CHECK HOST BLOCKED USER
-  // ============================================================
-
+  // Check whether the host blocked this user
   const userId = req.user.id;
 
   const blockedUser = await prisma.hostBlockedUser.findUnique({
@@ -88,48 +114,95 @@ const createBooking = asyncHandler(async (req, res) => {
   if (blockedUser) {
     return res.status(403).json({
       success: false,
-      message: "You are blocked by this host and cannot book this listing.",
+      message:
+        "You are blocked by this host and cannot book this listing.",
     });
   }
 
-  // Validate dates
-  const checkInDate = new Date(check_in);
-  const checkOutDate = new Date(check_out);
+  // Validate strict calendar dates in YYYY-MM-DD format
+  const isValidCalendarDate = (value) => {
+    if (
+      typeof value !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(value)
+    ) {
+      return false;
+    }
+
+    const parsed = DateTime.fromISO(value, { zone: "UTC" });
+
+    return parsed.isValid && parsed.toISODate() === value;
+  };
 
   if (
-    Number.isNaN(checkInDate.getTime()) ||
-    Number.isNaN(checkOutDate.getTime())
+    !isValidCalendarDate(check_in) ||
+    !isValidCalendarDate(check_out)
   ) {
     return res.status(400).json({
       success: false,
-      message: "Invalid check-in or check-out date",
+      message:
+        "Invalid check-in or check-out date. Use YYYY-MM-DD.",
     });
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Use the property's timezone, not the customer's or server's timezone
+  const timeZone = listing.timezone || "Africa/Tripoli";
 
-  if (checkInDate < today) {
+  const todayInProperty = DateTime.now()
+    .setZone(timeZone)
+    .toISODate();
+
+  if (!todayInProperty) {
+    return res.status(500).json({
+      success: false,
+      message: "Unable to determine the property's local date",
+    });
+  }
+
+  // Compare calendar dates in the property's local timezone
+  if (check_in < todayInProperty) {
     return res.status(400).json({
       success: false,
       message: "Check-in date must be today or future",
+      today: todayInProperty,
+      timezone: timeZone,
     });
   }
 
-  if (checkOutDate <= checkInDate) {
+  if (check_out <= check_in) {
     return res.status(400).json({
       success: false,
       message: "Check-out must be after check-in",
     });
   }
 
+  // Convert property-local midnight to UTC for database storage
+  const checkInLocal = DateTime.fromISO(check_in, {
+    zone: timeZone,
+  });
+
+  const checkOutLocal = DateTime.fromISO(check_out, {
+    zone: timeZone,
+  });
+
+  if (!checkInLocal.isValid || !checkOutLocal.isValid) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid booking dates or property timezone",
+    });
+  }
+
+  const checkInDate = checkInLocal.toUTC().toJSDate();
+  const checkOutDate = checkOutLocal.toUTC().toJSDate();
+
   console.log("========== BOOKING DEBUG ==========");
   console.log("Listing:", listing.id);
-  console.log("Requested check-in:", checkInDate);
-  console.log("Requested check-out:", checkOutDate);
+  console.log("Property timezone:", timeZone);
+  console.log("Today's property date:", todayInProperty);
+  console.log("Requested check-in:", check_in);
+  console.log("Requested check-out:", check_out);
   console.log("Existing bookings:", listing.bookings);
   console.log("Blocked dates:", listing.blocked_dates);
-  console.log("==================================");
+  console.log("===================================");
 
   // Check existing bookings
   const isAvailable = listing.bookings.every((booking) => {
@@ -148,7 +221,7 @@ const createBooking = asyncHandler(async (req, res) => {
     });
   }
 
-  // Check blocked dates
+  // Check dates blocked by the host
   const blockedDates = Array.isArray(listing.blocked_dates)
     ? listing.blocked_dates
     : [];
@@ -168,6 +241,7 @@ const createBooking = asyncHandler(async (req, res) => {
       new Date(blockEnd),
     );
   });
+
   if (isBlocked) {
     return res.status(400).json({
       success: false,
@@ -176,13 +250,11 @@ const createBooking = asyncHandler(async (req, res) => {
   }
 
   // Calculate booking price
-  // This is only the booking value/price.
-  // No payment is processed by this application.
   const totalPrice = calculateBookingPrice(
     parseFloat(listing.price),
     checkInDate,
     checkOutDate,
-    guests,
+    guestCount,
   );
 
   // Create booking
@@ -193,10 +265,9 @@ const createBooking = asyncHandler(async (req, res) => {
       check_in: checkInDate,
       check_out: checkOutDate,
       total_price: totalPrice,
-      guests,
+      guests: guestCount,
       status: "pending",
     },
-
     include: {
       listing: {
         include: {
@@ -210,7 +281,6 @@ const createBooking = asyncHandler(async (req, res) => {
           },
         },
       },
-
       user: {
         select: {
           id: true,
@@ -222,12 +292,7 @@ const createBooking = asyncHandler(async (req, res) => {
     },
   });
 
-  // ============================================================
-  // SEND NOTIFICATION EMAILS (guest + host)
-  // Emails must NEVER break booking creation.
-  // ============================================================
-
-  // 1. Notify the guest
+  // Notify guest. Email errors must not break booking creation.
   try {
     const guestEmail = await emailService.sendBookingCreatedEmail(
       req.user.email,
@@ -237,24 +302,26 @@ const createBooking = asyncHandler(async (req, res) => {
         listingTitle: listing.title,
         checkIn: checkInDate,
         checkOut: checkOutDate,
-        guests,
+        guests: guestCount,
         totalPrice,
       },
     );
 
     if (guestEmail?.success) {
-      console.log(`📧 Booking created email sent to guest: ${req.user.email}`);
+      console.log(
+        `Booking created email sent to guest: ${req.user.email}`,
+      );
     } else {
       console.error(
-        `❌ Booking created email to guest failed:`,
+        "Booking email to guest failed:",
         guestEmail?.error || guestEmail,
       );
     }
   } catch (error) {
-    console.error("❌ Guest booking email threw:", error);
+    console.error("Guest booking email threw:", error);
   }
 
-  // 2. Notify the host (listing.host is already included above)
+  // Notify host
   try {
     if (listing.host?.email) {
       const hostEmail = await emailService.sendHostNewBookingEmail(
@@ -267,26 +334,28 @@ const createBooking = asyncHandler(async (req, res) => {
           guestEmail: req.user.email,
           checkIn: checkInDate,
           checkOut: checkOutDate,
-          guests,
+          guests: guestCount,
           totalPrice,
         },
       );
 
       if (hostEmail?.success) {
-        console.log(`📧 New booking email sent to host: ${listing.host.email}`);
+        console.log(
+          `New booking email sent to host: ${listing.host.email}`,
+        );
       } else {
         console.error(
-          `❌ New booking email to host failed:`,
+          "Booking email to host failed:",
           hostEmail?.error || hostEmail,
         );
       }
     } else {
       console.log(
-        `⚠️ Host has no email address — skipping host notification (host_id: ${listing.host_id})`,
+        `Host has no email address; skipping notification (host_id: ${listing.host_id})`,
       );
     }
   } catch (error) {
-    console.error("❌ Host booking email threw:", error);
+    console.error("Host booking email threw:", error);
   }
 
   // Clear booking cache

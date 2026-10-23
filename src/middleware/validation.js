@@ -264,33 +264,43 @@ const listingValidators = {
 };
 
 // Booking validators
+
 const bookingValidators = {
   create: [
     body("check_in")
       .notEmpty()
       .withMessage("Check-in date is required")
-      .isISO8601()
+      .isISO8601({ strict: true, strictSeparator: true })
       .withMessage("Invalid date format")
       .custom((value) => {
-        const date = new Date(value);
-        const today = new Date();
+        // Booking dates are calendar dates, not timestamps.
+        // Use Libya's local date to avoid UTC/timezone mismatches.
+        const todayInLibya = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Africa/Tripoli",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(new Date());
 
-        today.setHours(0, 0, 0, 0);
-
-        return date >= today;
+        return value >= todayInLibya;
       })
       .withMessage("Check-in must be today or future"),
 
     body("check_out")
       .notEmpty()
       .withMessage("Check-out date is required")
-      .isISO8601()
+      .isISO8601({ strict: true, strictSeparator: true })
       .withMessage("Invalid date format")
       .custom((value, { req }) => {
-        const checkOut = new Date(value);
-        const checkIn = new Date(req.body.check_in);
+        const checkIn = req.body.check_in;
 
-        return checkOut > checkIn;
+        // ISO YYYY-MM-DD strings compare chronologically.
+        return (
+          typeof checkIn === "string" &&
+          /^\d{4}-\d{2}-\d{2}$/.test(checkIn) &&
+          /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+          value > checkIn
+        );
       })
       .withMessage("Check-out must be after check-in"),
 
@@ -314,6 +324,8 @@ const bookingValidators = {
       .withMessage("Invalid status"),
   ],
 };
+
+
 
 // Payment validators
 const paymentValidators = {

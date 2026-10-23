@@ -35,6 +35,7 @@ function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
 // @desc    Create listing
 // @route   POST /api/v1/listings
 // @access  Private (Host only)
+
 const createListing = asyncHandler(async (req, res) => {
   const {
     title,
@@ -49,6 +50,7 @@ const createListing = asyncHandler(async (req, res) => {
     amenities,
     rules,
     cancellation_policy,
+    timezone,
   } = req.body;
 
   // Support coordinates from frontend
@@ -99,6 +101,9 @@ const createListing = asyncHandler(async (req, res) => {
       rules: [],
     },
 
+    // NEW: Use the provided timezone or default to Libya
+    timezone: timezone || "Africa/Tripoli",
+
     host_id: req.user.id,
   };
 
@@ -129,7 +134,8 @@ const createListing = asyncHandler(async (req, res) => {
     data: {
       host_details: {
         ...currentHostDetails,
-        totalListings: (Number(currentHostDetails.totalListings) || 0) + 1,
+        totalListings:
+          (Number(currentHostDetails.totalListings) || 0) + 1,
       },
     },
   });

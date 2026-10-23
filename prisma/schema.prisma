@@ -121,6 +121,7 @@ model UserEvent {
 model Listing {
   id                  String   @id @default(uuid()) @db.Uuid
   title               String   @db.VarChar(255)
+  timezone String @default("Africa/Tripoli") @db.VarChar(100)
   description         String   @db.Text
   price               Decimal  @db.Decimal(10, 2)
   location            String   @db.VarChar(255)
