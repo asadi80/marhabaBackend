@@ -1,5 +1,6 @@
 //src/middleware/validation.js
 const { body, param, query, validationResult } = require("express-validator");
+const { DateTime } = require("luxon");
 
 // Validation result handler
 const handleValidationErrors = (req, res, next) => {
@@ -267,8 +268,7 @@ const listingValidators = {
 
 
 
-const { body } = require("express-validator");
-const { DateTime } = require("luxon");
+
 
 const isValidCalendarDate = (value) => {
   if (
@@ -348,7 +348,6 @@ const bookingValidators = {
   ],
 };
 
-module.exports = bookingValidators;
 
 
 // Payment validators
