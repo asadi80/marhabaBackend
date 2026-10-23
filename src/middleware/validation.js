@@ -266,29 +266,55 @@ const listingValidators = {
 // Booking validators
 
 
+
+const { body } = require("express-validator");
+const { DateTime } = require("luxon");
+
+const isValidCalendarDate = (value) => {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value)
+  ) {
+    return false;
+  }
+
+  const parsed = DateTime.fromISO(value, {
+    zone: "UTC",
+  });
+
+  return parsed.isValid && parsed.toISODate() === value;
+};
+
 const bookingValidators = {
   create: [
+    body("listing_id")
+      .notEmpty()
+      .withMessage("Listing is required"),
+
     body("check_in")
       .notEmpty()
       .withMessage("Check-in date is required")
       .bail()
-      .isISO8601({ strict: true, strictSeparator: true })
-      .withMessage("Invalid date format"),
+      .custom(isValidCalendarDate)
+      .withMessage(
+        "Invalid check-in date. Use a valid YYYY-MM-DD date.",
+      ),
 
     body("check_out")
       .notEmpty()
       .withMessage("Check-out date is required")
       .bail()
-      .isISO8601({ strict: true, strictSeparator: true })
-      .withMessage("Invalid date format")
+      .custom(isValidCalendarDate)
+      .withMessage(
+        "Invalid check-out date. Use a valid YYYY-MM-DD date.",
+      )
       .bail()
       .custom((value, { req }) => {
         const checkIn = req.body.check_in;
 
         if (
-          typeof checkIn !== "string" ||
-          !/^\d{4}-\d{2}-\d{2}$/.test(checkIn) ||
-          !/^\d{4}-\d{2}-\d{2}$/.test(value)
+          !isValidCalendarDate(checkIn) ||
+          !isValidCalendarDate(value)
         ) {
           return false;
         }
@@ -299,7 +325,10 @@ const bookingValidators = {
 
     body("guests")
       .optional()
-      .isInt({ min: 1, max: 20 })
+      .isInt({
+        min: 1,
+        max: 20,
+      })
       .withMessage("Guests must be 1-20"),
   ],
 
@@ -307,6 +336,7 @@ const bookingValidators = {
     body("status")
       .notEmpty()
       .withMessage("Status is required")
+      .bail()
       .isIn([
         "confirmed",
         "cancelled",
@@ -318,6 +348,7 @@ const bookingValidators = {
   ],
 };
 
+module.exports = bookingValidators;
 
 
 // Payment validators
