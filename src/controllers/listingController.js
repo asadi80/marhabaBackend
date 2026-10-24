@@ -102,7 +102,7 @@ const createListing = asyncHandler(async (req, res) => {
     },
 
     // NEW: Use the provided timezone or default to Libya
-    timezone: timezone || "Africa/Tripoli",
+    timezone: validateTimezone(timezone) || DEFAULT_TIMEZONE,
 
     host_id: req.user.id,
   };
@@ -134,8 +134,7 @@ const createListing = asyncHandler(async (req, res) => {
     data: {
       host_details: {
         ...currentHostDetails,
-        totalListings:
-          (Number(currentHostDetails.totalListings) || 0) + 1,
+        totalListings: (Number(currentHostDetails.totalListings) || 0) + 1,
       },
     },
   });
@@ -296,11 +295,7 @@ const getListings = asyncHandler(async (req, res) => {
     }),
   ]);
 
-  const meta = paginationMeta(
-    total,
-    paginate.page,
-    paginate.limit
-  );
+  const meta = paginationMeta(total, paginate.page, paginate.limit);
 
   const result = {
     data: listings,
@@ -316,8 +311,6 @@ const getListings = asyncHandler(async (req, res) => {
   });
 });
 
-
-
 // @desc    Get single listing
 // @route   GET /api/v1/listings/:id
 // @access  Public
@@ -332,23 +325,15 @@ const getListing = asyncHandler(async (req, res) => {
   const normalize = (row, viewCountOverride) => {
     if (!row) return row;
 
-    const {
-      host,
-      latitude,
-      longitude,
-      blocked_dates,
-      view_count,
-      ...rest
-    } = row;
+    const { host, latitude, longitude, blocked_dates, view_count, ...rest } =
+      row;
 
     return {
       ...rest,
 
       // Prisma Decimal → number
       latitude:
-        latitude !== null && latitude !== undefined
-          ? Number(latitude)
-          : null,
+        latitude !== null && latitude !== undefined ? Number(latitude) : null,
       longitude:
         longitude !== null && longitude !== undefined
           ? Number(longitude)
@@ -430,7 +415,7 @@ const getListing = asyncHandler(async (req, res) => {
           // Confirmed + checked-in bookings block dates.
           // (Pending bookings are intentionally excluded — they don't
           //  hold the calendar until approved.)
-          status: { in: ["confirmed", "checked_in"] },
+          status: { in: ["pending","confirmed", "checked_in"] },
         },
         select: {
           check_in: true,
