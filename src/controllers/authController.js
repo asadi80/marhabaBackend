@@ -438,32 +438,26 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Bounded pagination — prevents unbounded payloads for long-tenured hosts.
+    // Bounded pagination
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const take = HOST_VERIFICATION_PAGE_SIZE;
     const skip = (page - 1) * take;
 
-    const [user, idCount, paymentCount] = await Promise.all([
-      prisma.user.findUnique({
-        where: { id: userId },
-        include: {
-          id_documents: {
-            orderBy: { created_at: "desc" },
-            take,
-            skip,
-          },
-          host_subscription_payments: {
-            orderBy: { created_at: "desc" },
-            take,
-            skip,
-          },
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        id_documents: {
+          orderBy: { created_at: "desc" },
+          take,
+          skip,
         },
-      }),
-      prisma.idDocument.count({ where: { user_id: userId } }).catch(() => 0),
-      prisma.hostSubscriptionPayment
-        .count({ where: { host_id: userId } })
-        .catch(() => 0),
-    ]);
+        host_subscription_payments: {
+          orderBy: { created_at: "desc" },
+          take,
+          skip,
+        },
+      },
+    });
 
     if (!user) {
       return res.status(404).json({
@@ -473,7 +467,7 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
       });
     }
 
-    // Non-host: return empty verification shape
+    // Non-host: return empty shape
     if (user.role !== "host") {
       return res.status(200).json({
         success: true,
@@ -499,11 +493,26 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
           },
           all_payments: [],
           overall_status: user.status,
+          pagination: {
+            page,
+            pageSize: take,
+            has_more_documents: false,
+            has_more_payments: false,
+          },
         },
       });
     }
 
     const verificationStatus = buildVerificationStatus(user);
+
+    // NOTE: we removed the two .count() calls. They were:
+    //   - failing at runtime (prisma.idDocument / hostSubscriptionPayment undefined)
+    //   - not required for the response shape
+    //   - the only place that needed them was the pagination metadata,
+    //     and for that we can just say "has_more" based on whether the
+    //     page came back full.
+    const fetchedDocs = user.id_documents?.length || 0;
+    const fetchedPayments = user.host_subscription_payments?.length || 0;
 
     return res.status(200).json({
       success: true,
@@ -512,10 +521,8 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
         pagination: {
           page,
           pageSize: take,
-          total_documents: idCount,
-          total_payments: paymentCount,
-          has_more_documents: skip + take < idCount,
-          has_more_payments: skip + take < paymentCount,
+          has_more_documents: fetchedDocs === take,
+          has_more_payments: fetchedPayments === take,
         },
       },
     });
