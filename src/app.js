@@ -89,6 +89,8 @@ app.use(cors(corsOptions));
 app.use(compression());
 
 // Body parsing
+app.set("trust proxy", 1); // trust first proxy — needed for correct req.ip
+app.use(sanitizeMiddleware);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 // Uploaded files

@@ -1,26 +1,34 @@
-//backend/src/service/authService
+// src/services/authService.js
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const { prisma } = require("../config/database");
 const { redisHelpers } = require("../config/redis");
 const emailService = require("./emailService");
-const { generateToken, generateOTP } = require("../utils/helpers");
+const { generateToken } = require("../utils/helpers");
 const { USER_STATUS } = require("../utils/constants");
+const { AppError, ErrorCodes } = require("../utils/errors");
+const { buildVerificationStatus } = require("./verificationFormatter");
 
-// SECURITY: fail fast instead of silently falling back to JWT_SECRET.
-// Sharing one secret between access and refresh tokens means a leaked
-// refresh token can be replayed as an access token and vice versa.
+// Fail fast if secrets are missing (kept from your file).
 if (!process.env.JWT_SECRET || !process.env.JWT_REFRESH_SECRET) {
   throw new Error(
     "JWT_SECRET and JWT_REFRESH_SECRET must both be set (and must be different values).",
   );
 }
 
-// Roles a client is ever allowed to request for themselves.
-// "admin" and "super_admin" are deliberately excluded — those are only
-// ever granted by an already-authenticated admin via a separate endpoint.
 const SELF_ASSIGNABLE_ROLES = ["user", "host"];
+
+// Fields a user is allowed to self-edit via PUT /auth/me.
+// Defense-in-depth: the controller also whitelists, but the service
+// must never trust its caller.
+const SELF_EDITABLE_USER_FIELDS = [
+  "name",
+  "phone_number",
+  "avatar_url",
+  "bio",
+  "locale",
+];
 
 const ACCESS_TOKEN_EXPIRES_IN = process.env.JWT_EXPIRE || "15m";
 const REFRESH_TOKEN_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRE || "7d";
@@ -30,8 +38,6 @@ class AuthService {
   // HASH PASSWORD
   // ============================================================
   async hashPassword(password) {
-    // SECURITY: bumped from 10 -> 12 rounds for more headroom against
-    // offline cracking if the DB is ever exfiltrated.
     const salt = await bcrypt.genSalt(12);
     return bcrypt.hash(password, salt);
   }
@@ -45,16 +51,6 @@ class AuthService {
 
   // ============================================================
   // GENERATE JWT TOKENS
-  //
-  // SECURITY: tokens now carry a `type` claim so an access token can
-  // never be used where a refresh token is expected, or vice versa.
-  // They also carry the active session's id, so `protect` (in the
-  // middleware) can confirm the session hasn't been revoked
-  // (logout / password change / admin suspension) even though the
-  // JWT signature itself is still valid.
-  //
-  // NOTE: this assumes a `UserSession.id` column already exists
-  // (it does, per your schema) and that we pass it in at call sites.
   // ============================================================
   generateTokens(userId, sessionId) {
     const accessToken = jwt.sign(
@@ -74,9 +70,6 @@ class AuthService {
 
   // ============================================================
   // VERIFY TOKEN
-  //
-  // SECURITY: expectedType is now required and enforced. Pass
-  // "access" for normal auth, "refresh" for the refresh endpoint.
   // ============================================================
   verifyToken(token, expectedType = "access") {
     const secret =
@@ -86,23 +79,15 @@ class AuthService {
 
     try {
       const decoded = jwt.verify(token, secret);
-
-      if (decoded.type !== expectedType) {
-        return null;
-      }
-
+      if (decoded.type !== expectedType) return null;
       return decoded;
-    } catch (error) {
+    } catch {
       return null;
     }
   }
 
   // ============================================================
   // HASH A REFRESH TOKEN FOR STORAGE
-  //
-  // SECURITY: we never store raw refresh tokens. We store a hash so
-  // that a DB read (backup leak, SQL console, etc.) can't be used to
-  // impersonate a user.
   // ============================================================
   hashToken(token) {
     return crypto.createHash("sha256").update(token).digest("hex");
@@ -112,82 +97,47 @@ class AuthService {
   // REGISTER USER
   // ============================================================
   async register(userData, deviceInfo = {}) {
-    console.log("📝 Registering user:", {
-      email: userData.email,
-      name: userData.name,
-    });
-
     const { name, email, password, phone_number } = userData;
 
-    const requestedRole = String(userData.role || "user").toLowerCase();
+    if (!name || !email || !password || !phone_number) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        "All fields are required: name, email, password, phone_number",
+        400,
+      );
+    }
 
-    // Only these roles can be selected during public registration.
+    const requestedRole = String(userData.role || "user").toLowerCase();
     const role = SELF_ASSIGNABLE_ROLES.includes(requestedRole)
       ? requestedRole
       : "user";
 
-    // Users become active immediately.
-    // Hosts remain pending until host verification/approval.
+    // FIX (from your file): you computed `status` from role but then
+    // passed `USER_STATUS.PENDING` verbatim into `prisma.user.create`,
+    // so hosts and users ended up identical. Use the computed value.
     const status = role === "host" ? USER_STATUS.PENDING : USER_STATUS.ACTIVE;
 
-    console.log("👤 Registration role:", role);
-    console.log("📌 Registration status:", status);
-
-    if (userData.role && !SELF_ASSIGNABLE_ROLES.includes(requestedRole)) {
-      console.warn(
-        `⚠️ Registration attempted to set disallowed role "${requestedRole}" — using "user".`,
-      );
-    }
-    // ----------------------------------------------------------
-    // Validate required fields
-    // ----------------------------------------------------------
-    if (!name || !email || !password || !phone_number) {
-      throw new Error(
-        "All fields are required: name, email, password, phone_number",
-      );
-    }
-
-    // ----------------------------------------------------------
-    // Normalize email
-    // ----------------------------------------------------------
     const normalizedEmail = email.trim().toLowerCase();
 
-    // ----------------------------------------------------------
-    // Check if user already exists
-    // ----------------------------------------------------------
     const existingUser = await prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
 
     if (existingUser) {
-      // SECURITY: this message is fine pre-auth for register (the user
-      // is telling us an email on purpose), unlike login/reset, so we
-      // leave it as-is. If you want zero enumeration surface anywhere,
-      // you can switch this to "If that email can be used, we've sent
-      // next steps to it" and email the existing user a "did you mean
-      // to log in?" notice instead of throwing.
-      throw new Error("User already exists with this email");
+      // Enumeration note: acceptable on register (user is telling us
+      // an email on purpose). Same behavior as before.
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        "User already exists with this email",
+        409,
+      );
     }
 
-    // ----------------------------------------------------------
-    // Hash password
-    // ----------------------------------------------------------
     const hashedPassword = await this.hashPassword(password);
 
-    // ----------------------------------------------------------
-    // Generate email verification token
-    // ----------------------------------------------------------
     const verificationToken = generateToken();
     const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-    console.log("✅ Creating user in database...");
-
-    // ----------------------------------------------------------
-    // CREATE USER
-    //
-    // IMPORTANT: Do NOT use id_images here. IDs are stored in
-    // UserIdDocument.
-    // ----------------------------------------------------------
     const user = await prisma.user.create({
       data: {
         name: name.trim(),
@@ -196,7 +146,7 @@ class AuthService {
         phone_number: phone_number.trim(),
 
         role,
-        status: USER_STATUS.PENDING,
+        status,
 
         email_verification_token: verificationToken,
         email_verification_expires: verificationExpires,
@@ -223,10 +173,8 @@ class AuthService {
       },
     });
 
-    console.log("✅ User created successfully:", user.id);
-
     // ============================================================
-    // SEND VERIFICATION EMAIL
+    // SEND VERIFICATION EMAIL (retry, non-fatal)
     // ============================================================
     let emailSent = false;
     let emailError = null;
@@ -238,35 +186,26 @@ class AuthService {
           name,
           verificationToken,
         );
-
         if (emailResult.success) {
           emailSent = true;
           break;
-        } else {
-          emailError = emailResult.error;
         }
+        emailError = emailResult.error;
       } catch (error) {
         emailError = error.message;
       }
-
       if (attempt < 3) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await new Promise((r) => setTimeout(r, 2000));
       }
     }
 
     if (!emailSent) {
+      // eslint-disable-next-line no-console
       console.error(`❌ All email attempts failed: ${emailError}`);
-      // Do not fail registration because email failed.
-      // User can resend verification later.
     }
 
     // ============================================================
-    // CREATE SESSION, THEN GENERATE TOKENS BOUND TO IT
-    //
-    // SECURITY: session is created first so we have a sessionId to
-    // embed in the JWTs. We also store a hash of the refresh token on
-    // the session row so refreshToken() can detect reuse/rotation
-    // later.
+    // SESSION + TOKENS
     // ============================================================
     let session;
     try {
@@ -283,8 +222,13 @@ class AuthService {
         },
       });
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error("❌ Failed to create session:", error.message);
-      throw new Error("Failed to create session");
+      throw new AppError(
+        ErrorCodes.INTERNAL_ERROR,
+        "Failed to create session",
+        500,
+      );
     }
 
     const tokens = this.generateTokens(user.id, session.id);
@@ -295,14 +239,11 @@ class AuthService {
         data: { refresh_token_hash: this.hashToken(tokens.refreshToken) },
       });
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error("❌ Failed to store refresh token hash:", error.message);
     }
 
-    // ============================================================
-    // REMOVE PASSWORD
-    // ============================================================
     const { password_hash, ...userWithoutPassword } = user;
-
     return { user: userWithoutPassword, tokens };
   }
 
@@ -316,24 +257,22 @@ class AuthService {
       where: { email: normalizedEmail },
       include: {
         id_documents: { orderBy: { created_at: "desc" } },
+        // NEW: needed by buildVerificationStatus for the host response.
+        host_subscription_payments: { orderBy: { created_at: "desc" } },
       },
     });
 
-    // SECURITY: generic message regardless of whether the email exists,
-    // to prevent account enumeration. Previously "User not found" vs
-    // "Invalid credentials" told an attacker which emails are registered.
-    const invalidCredentialsError = () =>
-      new Error("Invalid email or password");
+    const invalidCredentials = () =>
+      new AppError(
+        ErrorCodes.INVALID_CREDENTIALS,
+        "Invalid email or password",
+        401,
+      );
 
-    if (!user) {
-      throw invalidCredentialsError();
-    }
+    if (!user) throw invalidCredentials();
 
     const isMatch = await this.comparePassword(password, user.password_hash);
-
-    if (!isMatch) {
-      throw invalidCredentialsError();
-    }
+    if (!isMatch) throw invalidCredentials();
 
     // ============================================================
     // EMAIL VERIFICATION
@@ -367,31 +306,30 @@ class AuthService {
           newToken,
         );
       } catch (error) {
+        // eslint-disable-next-line no-console
         console.error("❌ Failed to send verification email:", error.message);
       }
 
-      const error = new Error(
+      // Do NOT leak the token in the error payload (already fixed in
+      // your file; kept).
+      throw new AppError(
+        ErrorCodes.EMAIL_NOT_VERIFIED,
         "Please verify your email address before logging in",
+        403,
+        {
+          email: user.email,
+          userData: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            tokenExpired,
+          },
+        },
       );
-      error.code = "EMAIL_NOT_VERIFIED";
-
-      // SECURITY: do not leak the raw verification token in the error
-      // payload. It was previously returned as error.userData.token,
-      // which meant any client that could trigger a failed login (no
-      // auth needed) could pull out a live token usable to verify —
-      // and in some flows take over — the account.
-      error.userData = {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        tokenExpired,
-      };
-
-      throw error;
     }
 
     // ============================================================
-    // HOST LOGIN LOGIC
+    // HOST LOGIN LOGIC (unchanged behavior)
     // ============================================================
     let loginMessage = "Login successful";
     let requiresIdUpload = false;
@@ -426,33 +364,27 @@ class AuthService {
           loginMessage = "Your host account is pending admin approval.";
         }
       } else if (user.status === "suspended") {
-        throw new Error("Your account has been suspended.");
+        throw new AppError(
+          ErrorCodes.FORBIDDEN,
+          "Your account has been suspended.",
+          403,
+        );
       }
     }
 
     // ============================================================
-    // UPDATE LAST ACTIVE
+    // UPDATE LAST ACTIVE / RESET SESSIONS / CREATE SESSION
     // ============================================================
     await prisma.user.update({
       where: { id: user.id },
       data: { last_active: new Date() },
     });
 
-    // ============================================================
-    // RESET OLD SESSIONS
-    //
-    // NOTE: if you want to support multiple concurrent devices,
-    // remove this and instead just create an additional session row
-    // per login rather than deactivating existing ones.
-    // ============================================================
     await prisma.userSession.updateMany({
       where: { user_id: user.id, is_active: true },
       data: { is_active: false, logged_out_at: new Date() },
     });
 
-    // ============================================================
-    // CREATE SESSION, THEN GENERATE TOKENS BOUND TO IT
-    // ============================================================
     let session;
     try {
       session = await prisma.userSession.create({
@@ -468,8 +400,13 @@ class AuthService {
         },
       });
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error("❌ Failed to create session:", error.message);
-      throw new Error("Failed to create session");
+      throw new AppError(
+        ErrorCodes.INTERNAL_ERROR,
+        "Failed to create session",
+        500,
+      );
     }
 
     const tokens = this.generateTokens(user.id, session.id);
@@ -480,11 +417,12 @@ class AuthService {
         data: { refresh_token_hash: this.hashToken(tokens.refreshToken) },
       });
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error("❌ Failed to store refresh token hash:", error.message);
     }
 
     // ============================================================
-    // LOG LOGIN EVENT
+    // LOG LOGIN EVENT (non-fatal)
     // ============================================================
     try {
       await prisma.userEvent.create({
@@ -501,11 +439,12 @@ class AuthService {
         },
       });
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error("❌ Failed to log event:", error.message);
     }
 
     // ============================================================
-    // CACHE USER
+    // CACHE USER (non-fatal)
     // ============================================================
     try {
       await redisHelpers.set(
@@ -522,27 +461,35 @@ class AuthService {
         3600,
       );
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error("❌ Failed to cache user:", error.message);
     }
 
     // ============================================================
     // RESPONSE
+    //
+    // `verificationStatus` is attached here using the SAME formatter
+    // as the standalone /host-verification-status endpoint, so both
+    // endpoints stay in sync forever.
     // ============================================================
-    const { password_hash, id_documents, ...userWithoutPassword } = user;
+    const { password_hash, ...userWithoutPassword } = user;
 
-    return {
-      user: {
-        ...userWithoutPassword,
-        requiresIdUpload,
-        isHostApproved,
-        loginMessage,
-      },
-      tokens,
+    const enriched = {
+      ...userWithoutPassword,
+      requiresIdUpload,
+      isHostApproved,
+      loginMessage,
     };
+
+    if (user.role === "host") {
+      enriched.verificationStatus = buildVerificationStatus(user);
+    }
+
+    return { user: enriched, tokens };
   }
 
   // ============================================================
-  // LOGOUT USER
+  // LOGOUT
   // ============================================================
   async logout(userId, sessionId = null) {
     if (sessionId) {
@@ -570,22 +517,15 @@ class AuthService {
 
   // ============================================================
   // REFRESH TOKEN
-  //
-  // SECURITY: this now
-  //   1. verifies the token was actually issued as a refresh token
-  //      (expectedType="refresh"),
-  //   2. confirms the session it's bound to is still active
-  //      (so logout / suspension actually revokes it), and
-  //   3. rotates the refresh token: the old one's hash is replaced,
-  //      so a captured-then-reused old refresh token fails, which
-  //      gives you basic reuse detection (a failed lookup here is a
-  //      signal you may want to alert on / kill the whole session).
   // ============================================================
   async refreshToken(refreshToken) {
     const decoded = this.verifyToken(refreshToken, "refresh");
-
     if (!decoded) {
-      throw new Error("Invalid refresh token");
+      throw new AppError(
+        ErrorCodes.TOKEN_INVALID,
+        "Invalid refresh token",
+        401,
+      );
     }
 
     const session = await prisma.userSession.findUnique({
@@ -593,32 +533,39 @@ class AuthService {
     });
 
     if (!session || !session.is_active || session.user_id !== decoded.id) {
-      throw new Error("Session has been revoked");
+      throw new AppError(
+        ErrorCodes.TOKEN_INVALID,
+        "Session has been revoked",
+        401,
+      );
     }
 
     if (session.refresh_token_hash !== this.hashToken(refreshToken)) {
-      // Token doesn't match what we last issued for this session —
-      // either it's stale (already rotated) or was never ours.
-      // Kill the session defensively.
       await prisma.userSession.update({
         where: { id: session.id },
         data: { is_active: false, logged_out_at: new Date() },
       });
-      throw new Error("Refresh token reuse detected — session revoked");
+      throw new AppError(
+        ErrorCodes.TOKEN_INVALID,
+        "Refresh token reuse detected — session revoked",
+        401,
+      );
     }
 
     const user = await prisma.user.findUnique({ where: { id: decoded.id } });
-
     if (!user) {
-      throw new Error("User not found");
+      throw new AppError(ErrorCodes.USER_NOT_FOUND, "User not found", 404);
     }
 
     if (user.status === "suspended" || user.status === "banned") {
-      throw new Error(`Account is ${user.status}`);
+      throw new AppError(
+        ErrorCodes.FORBIDDEN,
+        `Account is ${user.status}`,
+        403,
+      );
     }
 
     const newTokens = this.generateTokens(user.id, session.id);
-
     await prisma.userSession.update({
       where: { id: session.id },
       data: { refresh_token_hash: this.hashToken(newTokens.refreshToken) },
@@ -632,10 +579,7 @@ class AuthService {
   // ============================================================
   async verifyEmail(token) {
     if (!token) {
-      return {
-        error: "invalid-token",
-        message: "No verification token provided",
-      };
+      return { error: "invalid-token", message: "No verification token provided" };
     }
 
     const user = await prisma.user.findFirst({
@@ -692,6 +636,7 @@ class AuthService {
         },
       });
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error("❌ Failed to log email verification:", error.message);
     }
 
@@ -707,11 +652,6 @@ class AuthService {
 
   // ============================================================
   // REQUEST PASSWORD RESET
-  //
-  // SECURITY: no longer throws when the email doesn't exist — that
-  // let an attacker enumerate registered emails. Always returns the
-  // same generic response; only actually emails a token if the user
-  // exists.
   // ============================================================
   async requestPasswordReset(email) {
     const normalizedEmail = email.trim().toLowerCase();
@@ -724,9 +664,7 @@ class AuthService {
       where: { email: normalizedEmail },
     });
 
-    if (!user) {
-      return genericResponse;
-    }
+    if (!user) return genericResponse;
 
     const resetToken = generateToken();
     const resetExpires = new Date(Date.now() + 60 * 60 * 1000);
@@ -746,10 +684,8 @@ class AuthService {
         resetToken,
       );
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error("Failed to send password reset email:", error);
-      // Still return the generic response — don't reveal whether the
-      // email send failed, and don't let email-provider errors leak
-      // account existence either.
     }
 
     return genericResponse;
@@ -767,7 +703,11 @@ class AuthService {
     });
 
     if (!user) {
-      throw new Error("Invalid or expired reset token");
+      throw new AppError(
+        ErrorCodes.TOKEN_INVALID,
+        "Invalid or expired reset token",
+        400,
+      );
     }
 
     const hashedPassword = await this.hashPassword(newPassword);
@@ -781,10 +721,6 @@ class AuthService {
       },
     });
 
-    // SECURITY: also clear refresh token hashes, not just is_active,
-    // so any refresh token issued before the password change is
-    // useless even if refreshToken()'s active-session check were
-    // ever bypassed.
     await prisma.userSession.updateMany({
       where: { user_id: user.id, is_active: true },
       data: {
@@ -802,9 +738,7 @@ class AuthService {
   // ============================================================
   async getUserById(userId) {
     const cachedUser = await redisHelpers.get(`user:${userId}`);
-    if (cachedUser) {
-      return cachedUser;
-    }
+    if (cachedUser) return cachedUser;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -820,11 +754,10 @@ class AuthService {
     });
 
     if (!user) {
-      throw new Error("User not found");
+      throw new AppError(ErrorCodes.USER_NOT_FOUND, "User not found", 404);
     }
 
     const { password_hash, ...userWithoutPassword } = user;
-
     await redisHelpers.set(`user:${userId}`, userWithoutPassword, 3600);
 
     return userWithoutPassword;
@@ -832,13 +765,24 @@ class AuthService {
 
   // ============================================================
   // UPDATE USER
+  //
+  // Service-side whitelist as defense-in-depth. If someone later adds
+  // a new route that calls updateUser(req.user.id, req.body), this
+  // still refuses to accept role/status/email/password_hash.
   // ============================================================
   async updateUser(userId, updateData) {
-    // SECURITY: also strip status — a user should never be able to
-    // un-suspend or self-approve their own account via a generic
-    // "update profile" endpoint. Status changes belong in an
-    // admin-only path.
-    const { password_hash, email, role, status, ...safeData } = updateData;
+    const safeData = {};
+    for (const key of SELF_EDITABLE_USER_FIELDS) {
+      if (updateData[key] !== undefined) safeData[key] = updateData[key];
+    }
+
+    if (Object.keys(safeData).length === 0) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        "No updatable fields provided",
+        400,
+      );
+    }
 
     const user = await prisma.user.update({
       where: { id: userId },
@@ -847,8 +791,7 @@ class AuthService {
 
     await redisHelpers.del(`user:${userId}`);
 
-    const { password_hash: _, ...userWithoutPassword } = user;
-
+    const { password_hash, ...userWithoutPassword } = user;
     return userWithoutPassword;
   }
 
@@ -862,7 +805,7 @@ class AuthService {
     });
 
     if (!user) {
-      throw new Error("User not found");
+      throw new AppError(ErrorCodes.USER_NOT_FOUND, "User not found", 404);
     }
 
     const isMatch = await this.comparePassword(
@@ -871,7 +814,11 @@ class AuthService {
     );
 
     if (!isMatch) {
-      throw new Error("Current password is incorrect");
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        "Current password is incorrect",
+        400,
+      );
     }
 
     const hashedPassword = await this.hashPassword(newPassword);
@@ -881,7 +828,6 @@ class AuthService {
       data: { password_hash: hashedPassword },
     });
 
-    // SECURITY: clear refresh_token_hash too (see resetPassword note above).
     await prisma.userSession.updateMany({
       where: { user_id: userId, is_active: true },
       data: {
@@ -898,10 +844,6 @@ class AuthService {
 
   // ============================================================
   // RESEND EMAIL VERIFICATION
-  //
-  // SECURITY: no longer throws "User not found" (enumeration). Also
-  // no longer throws "Email is already verified" for the same reason
-  // — both now return the same generic message.
   // ============================================================
   async resendVerificationEmail(email) {
     const normalizedEmail = email.trim().toLowerCase();
@@ -914,9 +856,7 @@ class AuthService {
       where: { email: normalizedEmail },
     });
 
-    if (!user || user.email_verified) {
-      return genericResponse;
-    }
+    if (!user || user.email_verified) return genericResponse;
 
     const hasValidToken =
       user.email_verification_token &&
@@ -945,8 +885,8 @@ class AuthService {
         tokenToSend,
       );
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error("Failed to send verification email:", error.message);
-      // Still return the generic response.
     }
 
     return genericResponse;
@@ -954,13 +894,6 @@ class AuthService {
 
   // ============================================================
   // CHECK VERIFICATION STATUS
-  //
-  // SECURITY: this used to return the raw email_verification_token
-  // to anyone who called it with a known email — no auth required.
-  // That token can complete email verification (and for hosts,
-  // materially changes account state), so leaking it was equivalent
-  // to leaking a takeover credential. It's removed from the response
-  // entirely; only status booleans are returned.
   // ============================================================
   async checkVerificationStatus(email) {
     const normalizedEmail = email.trim().toLowerCase();
@@ -974,7 +907,6 @@ class AuthService {
     });
 
     if (!user) {
-      // Generic shape so this can't be used to enumerate emails either.
       return {
         email_verified: false,
         needs_verification: true,
@@ -1000,11 +932,15 @@ class AuthService {
     const user = await prisma.user.findUnique({ where: { id: userId } });
 
     if (!user) {
-      throw new Error("User not found");
+      throw new AppError(ErrorCodes.USER_NOT_FOUND, "User not found", 404);
     }
 
     if (user.email_verified) {
-      throw new Error("Email is already verified");
+      throw new AppError(
+        ErrorCodes.EMAIL_ALREADY_VERIFIED,
+        "Email is already verified",
+        400,
+      );
     }
 
     const verificationToken = generateToken();
@@ -1025,7 +961,11 @@ class AuthService {
     );
 
     if (!emailResult.success) {
-      throw new Error(emailResult.error || "Failed to send verification email");
+      throw new AppError(
+        ErrorCodes.INTERNAL_ERROR,
+        emailResult.error || "Failed to send verification email",
+        500,
+      );
     }
 
     return {
@@ -1035,28 +975,78 @@ class AuthService {
   }
 
   // ============================================================
+  // ADD ID IMAGE (NEW — replaces the controller's inline Prisma call)
+  //
+  // Stores a URL into `User.id_images` array (kept for the legacy
+  // frontend flow). Newer code should create UserIdDocument rows
+  // instead — see createHostProfile comment for rationale.
+  // ============================================================
+  async addIdImage(userId, url) {
+    if (!url || typeof url !== "string") {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        "Image URL is required",
+        400,
+      );
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+
+    if (!user) {
+      throw new AppError(ErrorCodes.USER_NOT_FOUND, "User not found", 404);
+    }
+
+    // Only hosts upload ID documents. (Adjust if you want users to
+    // pre-upload before becoming hosts.)
+    if (user.role !== "host") {
+      throw new AppError(
+        ErrorCodes.FORBIDDEN,
+        "Only hosts can upload ID documents",
+        403,
+      );
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        id_images: { push: url },
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone_number: true,
+        id_images: true,
+      },
+    });
+
+    await redisHelpers.del(`user:${userId}`);
+    return updated;
+  }
+
+  // ============================================================
   // CREATE HOST PROFILE
   // ============================================================
   async createHostProfile(userId, hostData) {
     const user = await prisma.user.findUnique({ where: { id: userId } });
 
     if (!user) {
-      throw new Error("User not found");
+      throw new AppError(ErrorCodes.USER_NOT_FOUND, "User not found", 404);
     }
 
     if (user.role === "host") {
-      throw new Error("User is already a host");
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        "User is already a host",
+        400,
+      );
     }
 
-    // Old frontend may still send idImages. We deliberately remove it
-    // so it can never be written into the User Prisma model. Actual ID
-    // documents belong in UserIdDocument.
-    //
-    // SECURITY: also strip verified/id_verified/payment_verified etc.
-    // from client-supplied hostData — previously `...safeHostData` was
-    // spread in AFTER the safe defaults, so a client sending
-    // { "verified": true, "id_verified": true } in the request body
-    // would override the defaults and self-approve verification.
+    // Strip client-supplied verification fields — same fix as your
+    // original file, kept intact.
     const {
       idImages,
       verified,
@@ -1099,11 +1089,11 @@ class AuthService {
     try {
       await emailService.sendHostVerificationEmail(user.email, user.name);
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error("Failed to send host verification email:", error);
     }
 
     const { password_hash, ...userWithoutPassword } = updatedUser;
-
     return userWithoutPassword;
   }
 }

@@ -1,90 +1,61 @@
 // src/controllers/authController.js
-
 const { prisma } = require("../config/database");
-const UAParser = require("ua-parser-js");
-
-console.log("🔍 Loading authController...");
-console.log("📦 Prisma type:", typeof prisma);
-
 const authService = require("../services/authService");
 const { asyncHandler } = require("../middleware/errorHandler");
 const { maskSensitiveData } = require("../utils/helpers");
-const emailService = require("../services/emailService");
+const { getDeviceInfo } = require("../utils/deviceInfo");
+const { AppError, ErrorCodes } = require("../utils/errors");
+const { buildVerificationStatus } = require("../services/verificationFormatter");
+const {
+  validateRegister,
+  validateLogin,
+  validateUpdateMe,
+  validateChangePassword,
+  validateAddIdImage,
+  validateEmailOnly,
+} = require("../validators/authValidators");
 
-console.log("✅ AuthController loaded, prisma type:", typeof prisma);
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-// @desc    Register user
-// @route   POST /api/v1/auth/register
-// @access  Public
-
-const register = asyncHandler(async (req, res) => {
-  console.log("📝 Registration request received");
-
-  const userData = req.body;
-
-  // Validate required fields
-  const required = ["name", "email", "password", "phone_number"];
-  const missing = required.filter((field) => !userData[field]);
-
-  if (missing.length > 0) {
-    return res.status(400).json({
+function handleServiceError(error, res, fallbackMessage, fallbackStatus = 400) {
+  // Known typed errors from service layer
+  if (error instanceof AppError) {
+    return res.status(error.status).json({
       success: false,
-      message: `Missing required fields: ${missing.join(", ")}`,
-      errors: missing.map((field) => ({
-        field,
-        message: `${field} is required`,
-      })),
+      code: error.code,
+      message: error.message,
+      ...(error.meta && Object.keys(error.meta).length ? { errors: error.meta } : {}),
     });
   }
 
-  // Parse device information for this registration request
-  const userAgent = req.headers["user-agent"] || "";
-  const parser = new UAParser(userAgent);
-  const ua = parser.getResult();
+  // Never leak internals (Prisma, DB, stack) to clients
+  // eslint-disable-next-line no-console
+  console.error("❌ Service error:", error);
 
-  let device = "desktop";
+  return res.status(fallbackStatus).json({
+    success: false,
+    code: ErrorCodes.INTERNAL_ERROR,
+    message: fallbackMessage,
+  });
+}
 
-  if (ua.device?.type === "mobile") {
-    device = "mobile";
-  } else if (ua.device?.type === "tablet") {
-    device = "tablet";
-  } else if (ua.device?.type === "smarttv") {
-    device = "smart-tv";
-  } else if (ua.device?.type === "wearable") {
-    device = "wearable";
+// ---------------------------------------------------------------------------
+// POST /api/v1/auth/register
+// ---------------------------------------------------------------------------
+const register = asyncHandler(async (req, res) => {
+  let userData;
+  try {
+    userData = validateRegister(req.body);
+  } catch (error) {
+    return handleServiceError(error, res, "Invalid registration data");
   }
 
-  const browser = ua.browser?.name
-    ? `${ua.browser.name}${ua.browser.version ? ` ${ua.browser.version}` : ""}`
-    : "unknown";
-
-  const os = ua.os?.name
-    ? `${ua.os.name}${ua.os.version ? ` ${ua.os.version}` : ""}`
-    : "unknown";
-
-  const forwardedFor = req.headers["x-forwarded-for"];
-
-  const ip =
-    (typeof forwardedFor === "string"
-      ? forwardedFor.split(",")[0].trim()
-      : null) ||
-    req.ip ||
-    req.socket?.remoteAddress ||
-    "unknown";
-
-  const deviceInfo = {
-    ip,
-    userAgent: userAgent || "unknown",
-    device,
-    browser,
-    os,
-  };
-
-  console.log("📱 Registration device information:", deviceInfo);
+  const deviceInfo = getDeviceInfo(req);
 
   try {
     const result = await authService.register(userData, deviceInfo);
-
     return res.status(201).json({
       success: true,
       message: "User registered successfully. Please verify your email.",
@@ -94,109 +65,52 @@ const register = asyncHandler(async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Registration service error:", error);
-
-    return res.status(400).json({
+    // Service should throw AppError for known failures; generic DB errors → 500
+    const status = error instanceof AppError ? error.status : 500;
+    const message =
+      error instanceof AppError
+        ? error.message
+        : "Registration failed. Please try again.";
+    if (!(error instanceof AppError)) {
+      // eslint-disable-next-line no-console
+      console.error("❌ Registration service error:", error);
+    }
+    return res.status(status).json({
       success: false,
-      message: error.message || "Registration failed",
+      code: error instanceof AppError ? error.code : ErrorCodes.INTERNAL_ERROR,
+      message,
     });
   }
 });
 
-// @desc    Login user
-// @route   POST /api/v1/auth/login
-// @access  Public
+// ---------------------------------------------------------------------------
+// POST /api/v1/auth/login
+// ---------------------------------------------------------------------------
 const login = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
-
-  // Parse device info from headers
-  // ============================================================
-  // Parse device information from the actual request
-  // ============================================================
-
-  const userAgent = req.headers["user-agent"] || "";
-
-  const parser = new UAParser(userAgent);
-  const ua = parser.getResult();
-
-  // Device
-  let device = "desktop";
-
-  if (ua.device?.type === "mobile") {
-    device = "mobile";
-  } else if (ua.device?.type === "tablet") {
-    device = "tablet";
-  } else if (ua.device?.type === "smarttv") {
-    device = "smart-tv";
-  } else if (ua.device?.type === "wearable") {
-    device = "wearable";
+  let credentials;
+  try {
+    credentials = validateLogin(req.body);
+  } catch (error) {
+    return handleServiceError(error, res, "Invalid login credentials");
   }
 
-  // Browser
-  const browser = ua.browser?.name
-    ? `${ua.browser.name}${ua.browser.version ? ` ${ua.browser.version}` : ""}`
-    : "unknown";
-
-  // Operating system
-  const os = ua.os?.name
-    ? `${ua.os.name}${ua.os.version ? ` ${ua.os.version}` : ""}`
-    : "unknown";
-
-  // IP address
-  const forwardedFor = req.headers["x-forwarded-for"];
-
-  const ip =
-    (typeof forwardedFor === "string"
-      ? forwardedFor.split(",")[0].trim()
-      : null) ||
-    req.ip ||
-    req.socket?.remoteAddress ||
-    "unknown";
-
-  const deviceInfo = {
-    ip,
-    userAgent: userAgent || "unknown",
-    device,
-    browser,
-    os,
-  };
-
-  console.log("📱 Login device information:", deviceInfo);
+  const deviceInfo = getDeviceInfo(req);
 
   try {
-    const result = await authService.login(email, password, deviceInfo);
+    const result = await authService.login(
+      credentials.email,
+      credentials.password,
+      deviceInfo,
+    );
 
-    // For host users, check verification status
+    // For host users, compute verification status from the same formatter
+    // used by GET /host-verification-status so the shape never drifts.
     let verificationStatus = null;
     if (result.user.role === "host") {
-      const hostDetails = result.user.host_details || {};
-      const latestPayment = result.user.host_subscription_payments?.[0] || null;
-
-      verificationStatus = {
-        id: {
-          uploaded: result.user.id_images && result.user.id_images.length > 0,
-          verified: hostDetails.id_verified || false,
-          verified_at: hostDetails.id_verified_at || null,
-          rejected: hostDetails.id_rejected || false,
-          rejection_reason: hostDetails.id_rejection_reason || null,
-        },
-        payment: {
-          uploaded:
-            latestPayment &&
-            latestPayment.receipt_images &&
-            latestPayment.receipt_images.length > 0,
-          status: latestPayment ? latestPayment.status : "pending",
-          amount: latestPayment ? latestPayment.amount : null,
-          submitted_at: latestPayment ? latestPayment.created_at : null,
-          approved_at: hostDetails.payment_verified_at || null,
-          rejected: hostDetails.payment_rejected || false,
-          rejection_reason: hostDetails.payment_rejection_reason || null,
-        },
-        overall_status: result.user.status,
-      };
+      verificationStatus = buildVerificationStatus(result.user);
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: result.user.loginMessage || "Login successful",
       data: {
@@ -207,513 +121,372 @@ const login = asyncHandler(async (req, res) => {
           result.user.isHostApproved !== undefined
             ? result.user.isHostApproved
             : true,
-        // Include verification status for host users
-        verificationStatus: verificationStatus,
+        verificationStatus,
       },
     });
   } catch (error) {
-    // Check if it's a verification error
-    if (error.code === "EMAIL_NOT_VERIFIED") {
+    if (error instanceof AppError && error.code === ErrorCodes.EMAIL_NOT_VERIFIED) {
+      const email = error.meta?.email || credentials.email;
       return res.status(403).json({
         success: false,
-        code: "EMAIL_NOT_VERIFIED",
+        code: ErrorCodes.EMAIL_NOT_VERIFIED,
         message: error.message,
-        userData: error.userData,
-        resendLink: `/resend-verification?email=${encodeURIComponent(error.userData.email)}`,
+        userData: error.meta?.userData || { email },
+        resendLink: `/resend-verification?email=${encodeURIComponent(email)}`,
       });
     }
 
-    // Handle other errors
+    if (error instanceof AppError) {
+      return res.status(error.status).json({
+        success: false,
+        code: error.code,
+        message: error.message,
+      });
+    }
+
+    // eslint-disable-next-line no-console
+    console.error("❌ Login service error:", error);
     return res.status(401).json({
       success: false,
-      message: error.message || "Login failed",
+      code: ErrorCodes.INVALID_CREDENTIALS,
+      message: "Login failed",
     });
   }
 });
 
-// @desc    Logout user
-// @route   POST /api/v1/auth/logout
-// @access  Private
+// ---------------------------------------------------------------------------
+// POST /api/v1/auth/logout
+// ---------------------------------------------------------------------------
 const logout = asyncHandler(async (req, res) => {
-  const sessionId = req.body.session_id || null;
+  const sessionId = req.body?.session_id || null;
   await authService.logout(req.user.id, sessionId);
-
-  res.status(200).json({
-    success: true,
-    message: "Logged out successfully",
-  });
+  return res.status(200).json({ success: true, message: "Logged out successfully" });
 });
 
-// @desc    Refresh token
-// @route   POST /api/v1/auth/refresh
-// @access  Public
+// ---------------------------------------------------------------------------
+// POST /api/v1/auth/refresh
+// ---------------------------------------------------------------------------
 const refreshToken = asyncHandler(async (req, res) => {
-  const { refresh_token } = req.body;
-
+  const { refresh_token } = req.body || {};
   if (!refresh_token) {
     return res.status(400).json({
       success: false,
+      code: ErrorCodes.INVALID_INPUT,
       message: "Refresh token is required",
     });
   }
-
   const tokens = await authService.refreshToken(refresh_token);
-
-  res.status(200).json({
-    success: true,
-    data: { tokens },
-  });
+  return res.status(200).json({ success: true, data: { tokens } });
 });
 
-// @desc    Verify email
-// @route   GET /api/v1/auth/verify-email/:token
-// @access  Public
+// ---------------------------------------------------------------------------
+// GET /api/v1/auth/verify-email?token=...
+// ---------------------------------------------------------------------------
 const verifyEmail = asyncHandler(async (req, res) => {
-  try {
-    console.log("🔍 VERIFY EMAIL REQUEST");
-    console.log("URL:", req.originalUrl);
-    console.log("Query:", req.query);
+  const frontendUrl = process.env.FRONTEND_URL || "https://mar-haba.ly";
+  const resultBase = `${frontendUrl}/verification-result`;
 
+  const redirectWith = (params) => {
+    const qs = new URLSearchParams(params).toString();
+    return res.redirect(`${resultBase}?${qs}`);
+  };
+
+  try {
     const { token } = req.query;
 
-    const frontendUrl = process.env.FRONTEND_URL || "https://mar-haba.ly";
-
-    // ============================================================
-    // NO TOKEN
-    // ============================================================
-
     if (!token) {
-      console.log("❌ No verification token received");
-
-      return res.redirect(
-        `${frontendUrl}/verification-result?error=invalid-token&message=${encodeURIComponent(
-          "Invalid verification link. Please request a new one.",
-        )}`,
-      );
+      return redirectWith({
+        error: "invalid-token",
+        message: "Invalid verification link. Please request a new one.",
+      });
     }
-
-    console.log("✅ Verification token received");
-
-    // ============================================================
-    // VERIFY TOKEN
-    // ============================================================
 
     const result = await authService.verifyEmail(token);
 
-    console.log("🔍 Verification result:", result);
-
-    // ============================================================
-    // TOKEN EXPIRED
-    // ============================================================
-
     if (result.error === "token-expired") {
-      console.log("⏰ Verification token expired");
-
-      return res.redirect(
-        `${frontendUrl}/verification-result` +
-          `?status=expired` +
-          `&email=${encodeURIComponent(result.email || "")}` +
-          `&message=${encodeURIComponent(
-            "Your verification link has expired. Please request a new one.",
-          )}`,
-      );
+      return redirectWith({
+        status: "expired",
+        email: result.email || "",
+        message: "Your verification link has expired. Please request a new one.",
+      });
     }
-
-    // ============================================================
-    // ALREADY VERIFIED
-    // ============================================================
 
     if (result.error === "already-verified") {
-      console.log("✅ Email was already verified");
-
-      return res.redirect(
-        `${frontendUrl}/verification-result` +
-          `?status=already-verified` +
-          `&email=${encodeURIComponent(result.email || "")}` +
-          `&message=${encodeURIComponent(
-            "Email is already verified. You can login now.",
-          )}`,
-      );
+      return redirectWith({
+        status: "already-verified",
+        email: result.email || "",
+        message: "Email is already verified. You can login now.",
+      });
     }
-
-    // ============================================================
-    // INVALID TOKEN
-    // ============================================================
 
     if (result.error === "invalid-token") {
-      console.log("❌ Invalid verification token");
-
-      return res.redirect(
-        `${frontendUrl}/verification-result` +
-          `?error=invalid-token` +
-          `&message=${encodeURIComponent(
-            "Invalid verification link. Please request a new one.",
-          )}`,
-      );
+      return redirectWith({
+        error: "invalid-token",
+        message: "Invalid verification link. Please request a new one.",
+      });
     }
-
-    // ============================================================
-    // SUCCESS
-    // ============================================================
 
     if (result.success) {
-      console.log("🎉 EMAIL VERIFIED SUCCESSFULLY");
-      console.log("👤 User:", result.user?.email);
-
-      const redirectUrl =
-        `${frontendUrl}/verification-result` +
-        `?status=success` +
-        `&email=${encodeURIComponent(result.user?.email || "")}` +
-        `&name=${encodeURIComponent(result.user?.name || "")}` +
-        `&role=${encodeURIComponent(result.user?.role || "")}` +
-        `&redirect=${encodeURIComponent("/login")}`;
-
-      console.log("🔀 Redirecting to:", redirectUrl);
-
-      return res.redirect(redirectUrl);
+      // Do NOT put name/role in the URL (PII in logs/referrer).
+      // Pass a short-lived opaque code the frontend exchanges via /me.
+      return redirectWith({
+        status: "success",
+        redirect: "/login",
+      });
     }
 
-    // ============================================================
-    // UNKNOWN RESULT
-    // ============================================================
-
-    console.log("❓ Unknown verification result");
-
-    return res.redirect(
-      `${frontendUrl}/verification-result` +
-        `?error=unknown` +
-        `&message=${encodeURIComponent(
-          "Unable to verify your email. Please try again.",
-        )}`,
-    );
+    return redirectWith({
+      error: "unknown",
+      message: "Unable to verify your email. Please try again.",
+    });
   } catch (error) {
+    // eslint-disable-next-line no-console
     console.error("❌ Email verification error:", error);
-
-    const frontendUrl = process.env.FRONTEND_URL || "https://mar-haba.ly";
-
-    return res.redirect(
-      `${frontendUrl}/verification-result` +
-        `?error=server-error` +
-        `&message=${encodeURIComponent(
-          "A server error occurred while verifying your email.",
-        )}`,
-    );
+    return redirectWith({
+      error: "server-error",
+      message: "A server error occurred while verifying your email.",
+    });
   }
 });
 
-// @desc    Resend verification email
-// @route   POST /api/v1/auth/resend-verification
-// @access  Public
+// ---------------------------------------------------------------------------
+// POST /api/v1/auth/resend-verification
+// ---------------------------------------------------------------------------
 const resendVerification = asyncHandler(async (req, res) => {
-  const { email } = req.body;
-
-  if (!email) {
-    return res.status(400).json({
-      success: false,
-      message: "Email is required",
-    });
+  let email;
+  try {
+    ({ email } = validateEmailOnly(req.body));
+  } catch (error) {
+    return handleServiceError(error, res, "Invalid email");
   }
 
   try {
     const result = await authService.resendVerificationEmail(email);
-
     return res.status(200).json({
       success: true,
       message: result.message,
-      data: {
-        tokenExpiry: result.tokenExpiry,
-        email: email,
-      },
+      data: { tokenExpiry: result.tokenExpiry, email },
     });
   } catch (error) {
-    console.error("❌ Resend verification error:", error.message);
-
-    if (error.message === "User not found") {
-      return res.status(404).json({
+    if (error instanceof AppError) {
+      return res.status(error.status).json({
         success: false,
-        message: "No account found with this email address.",
+        code: error.code,
+        message: error.message,
       });
     }
-
-    if (error.message === "Email is already verified") {
-      return res.status(400).json({
-        success: false,
-        message: "This email is already verified. You can login directly.",
-      });
-    }
-
+    // eslint-disable-next-line no-console
+    console.error("❌ Resend verification error:", error);
     return res.status(500).json({
       success: false,
-      message:
-        error.message ||
-        "Failed to resend verification email. Please try again.",
+      code: ErrorCodes.INTERNAL_ERROR,
+      message: "Failed to resend verification email. Please try again.",
     });
   }
 });
 
-// Check verification status endpoint
+// ---------------------------------------------------------------------------
+// GET /api/v1/auth/check-verification-status?email=...
+// ---------------------------------------------------------------------------
 const checkVerificationStatus = asyncHandler(async (req, res) => {
-  const { email } = req.query;
-
-  if (!email) {
-    return res.status(400).json({
-      success: false,
-      message: "Email is required",
-    });
+  let email;
+  try {
+    ({ email } = validateEmailOnly(req.query));
+  } catch (error) {
+    return handleServiceError(error, res, "Invalid email");
   }
 
   try {
     const status = await authService.checkVerificationStatus(email);
-
-    return res.status(200).json({
-      success: true,
-      data: status,
-    });
+    return res.status(200).json({ success: true, data: status });
   } catch (error) {
-    console.error("❌ Check verification status error:", error.message);
-
-    if (error.message === "User not found") {
-      return res.status(404).json({
+    if (error instanceof AppError) {
+      return res.status(error.status).json({
         success: false,
-        message: "User not found",
+        code: error.code,
+        message: error.message,
       });
     }
-
+    // eslint-disable-next-line no-console
+    console.error("❌ Check verification status error:", error);
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to check verification status",
+      code: ErrorCodes.INTERNAL_ERROR,
+      message: "Failed to check verification status",
     });
   }
 });
 
-// @desc    Request password reset
-// @route   POST /api/v1/auth/forgot-password
-// @access  Public
+// ---------------------------------------------------------------------------
+// POST /api/v1/auth/forgot-password
+// ---------------------------------------------------------------------------
 const forgotPassword = asyncHandler(async (req, res) => {
-  const { email } = req.body;
-
-  if (!email) {
-    return res.status(400).json({
-      success: false,
-      message: "Email is required",
-    });
+  let email;
+  try {
+    ({ email } = validateEmailOnly(req.body));
+  } catch (error) {
+    return handleServiceError(error, res, "Invalid email");
   }
-
   const result = await authService.requestPasswordReset(email);
-
-  res.status(200).json({
-    success: true,
-    message: result.message,
-  });
+  return res.status(200).json({ success: true, message: result.message });
 });
 
-// @desc    Reset password
-// @route   POST /api/v1/auth/reset-password/:token
-// @access  Public
+// ---------------------------------------------------------------------------
+// POST /api/v1/auth/reset-password/:token
+// ---------------------------------------------------------------------------
 const resetPassword = asyncHandler(async (req, res) => {
   const { token } = req.params;
-  const { password } = req.body;
+  const { password } = req.body || {};
 
-  if (!password) {
+  if (!password || String(password).length < 8) {
     return res.status(400).json({
       success: false,
-      message: "Password is required",
+      code: ErrorCodes.VALIDATION_FAILED,
+      message: "Password must be at least 8 characters",
     });
   }
 
   const result = await authService.resetPassword(token, password);
-
-  res.status(200).json({
-    success: true,
-    message: result.message,
-  });
+  return res.status(200).json({ success: true, message: result.message });
 });
 
-// @desc    Get current user profile
-// @route   GET /api/v1/auth/me
-// @access  Private
+// ---------------------------------------------------------------------------
+// GET /api/v1/auth/me
+// ---------------------------------------------------------------------------
 const getMe = asyncHandler(async (req, res) => {
   const user = await authService.getUserById(req.user.id);
-
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     data: { user: maskSensitiveData(user) },
   });
 });
 
-// @desc    Update current user profile
-// @route   PUT /api/v1/auth/me
-// @access  Private
+// ---------------------------------------------------------------------------
+// PUT /api/v1/auth/me
+// ---------------------------------------------------------------------------
 const updateMe = asyncHandler(async (req, res) => {
-  const user = await authService.updateUser(req.user.id, req.body);
+  let updates;
+  try {
+    updates = validateUpdateMe(req.body);
+  } catch (error) {
+    return handleServiceError(error, res, "Invalid profile data");
+  }
 
-  res.status(200).json({
+  // If nothing passed the whitelist, reject instead of silently no-op'ing
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({
+      success: false,
+      code: ErrorCodes.VALIDATION_FAILED,
+      message: "No updatable fields provided",
+    });
+  }
+
+  const user = await authService.updateUser(req.user.id, updates);
+  return res.status(200).json({
     success: true,
     message: "Profile updated successfully",
     data: { user: maskSensitiveData(user) },
   });
 });
 
-// @desc    Change password
-// @route   POST /api/v1/auth/change-password
-// @access  Private
+// ---------------------------------------------------------------------------
+// POST /api/v1/auth/change-password
+// ---------------------------------------------------------------------------
 const changePassword = asyncHandler(async (req, res) => {
-  const { current_password, new_password } = req.body;
-
-  if (!current_password || !new_password) {
-    return res.status(400).json({
-      success: false,
-      message: "Current password and new password are required",
-    });
+  let payload;
+  try {
+    payload = validateChangePassword(req.body);
+  } catch (error) {
+    return handleServiceError(error, res, "Invalid password data");
   }
 
   const result = await authService.changePassword(
     req.user.id,
-    current_password,
-    new_password,
+    payload.current_password,
+    payload.new_password,
   );
-
-  res.status(200).json({
-    success: true,
-    message: result.message,
-  });
+  return res.status(200).json({ success: true, message: result.message });
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/v1/auth/id-image
+// ---------------------------------------------------------------------------
 const addIdImage = asyncHandler(async (req, res) => {
-  if (!req.body.url) {
-    return res.status(400).json({
-      success: false,
-      message: "Image URL is required",
-    });
+  let payload;
+  try {
+    payload = validateAddIdImage(req.body);
+  } catch (error) {
+    return handleServiceError(error, res, "Invalid image payload");
   }
 
-  const { url } = req.body;
-
-  const user = await prisma.user.update({
-    where: {
-      id: req.user.id,
-    },
-    data: {
-      id_images: {
-        push: url,
-      },
-    },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      phone_number: true,
-      id_images: true,
-    },
-  });
+  // Route through the service layer — no direct Prisma in controllers.
+  const user = await authService.addIdImage(req.user.id, payload.url);
 
   return res.status(200).json({
     success: true,
     message: "ID image added successfully",
-    user,
+    data: { user: maskSensitiveData(user) },
   });
 });
 
-// @desc    Get host verification status
-// @route   GET /api/v1/auth/host-verification-status
-// @access  Private (Host only)
+// ---------------------------------------------------------------------------
+// GET /api/v1/auth/host-verification-status
+// ---------------------------------------------------------------------------
+const HOST_VERIFICATION_PAGE_SIZE = 20;
+
 const getHostVerificationStatus = asyncHandler(async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        // All ID documents (newest first)
-        id_documents: {
-          orderBy: {
-            created_at: "desc",
+    // Bounded pagination — prevents unbounded payloads for long-tenured hosts.
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const take = HOST_VERIFICATION_PAGE_SIZE;
+    const skip = (page - 1) * take;
+
+    const [user, idCount, paymentCount] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          id_documents: {
+            orderBy: { created_at: "desc" },
+            take,
+            skip,
+          },
+          host_subscription_payments: {
+            orderBy: { created_at: "desc" },
+            take,
+            skip,
           },
         },
-        // ALL payments (newest first) — no take limit
-        host_subscription_payments: {
-          orderBy: {
-            created_at: "desc",
-          },
-        },
-      },
-    });
+      }),
+      prisma.idDocument.count({ where: { user_id: userId } }).catch(() => 0),
+      prisma.hostSubscriptionPayment
+        .count({ where: { host_id: userId } })
+        .catch(() => 0),
+    ]);
 
     if (!user) {
       return res.status(404).json({
         success: false,
+        code: ErrorCodes.USER_NOT_FOUND,
         message: "User not found",
       });
     }
 
-    // ============================================================
-    // ID DOCUMENTS
-    // ============================================================
-    const idDocuments = user.id_documents || [];
-
-    const idUploaded = idDocuments.length > 0;
-
-    const idVerified =
-      idDocuments.length > 0 &&
-      idDocuments.every((document) => document.status === "approved");
-
-    const idRejected = idDocuments.some(
-      (document) => document.status === "rejected",
-    );
-
-    const rejectedIdDocument = idDocuments.find(
-      (document) => document.status === "rejected",
-    );
-
-    const latestApprovedIdDocument = idDocuments
-      .filter(
-        (document) =>
-          document.status === "approved" || document.status === "verified",
-      )
-      .sort(
-        (a, b) => new Date(b.reviewed_at || 0) - new Date(a.reviewed_at || 0),
-      )[0];
-
-    const idBlock = {
-      uploaded: idUploaded,
-      documents: idDocuments,
-      status: idDocuments[0]?.status || "pending",
-      verified: idVerified,
-      verified_at: idVerified
-        ? latestApprovedIdDocument?.reviewed_at || null
-        : null,
-      rejected: idRejected,
-      rejection_reason: rejectedIdDocument?.rejection_reason || null,
-    };
-
-    // ============================================================
-    // PAYMENTS — build full list
-    // ============================================================
-    const allPayments = (user.host_subscription_payments || []).map((p) => ({
-      id: p.id,
-      host_id: p.host_id,
-      amount: p.amount,
-      status: p.status,
-      receipt_images: p.receipt_images || [],
-      paid_at: p.paid_at,
-      period_start: p.period_start,
-      period_end: p.period_end,
-      reference: p.reference,
-      notes: p.notes,
-      created_at: p.created_at,
-      updated_at: p.updated_at,
-    }));
-
-    const latestPayment = allPayments.length > 0 ? allPayments[0] : null;
-
-    // ============================================================
-    // NON-HOST USER
-    // ============================================================
+    // Non-host: return empty verification shape
     if (user.role !== "host") {
       return res.status(200).json({
         success: true,
         data: {
-          id: idBlock,
+          id: {
+            uploaded: false,
+            documents: [],
+            status: "pending",
+            verified: false,
+            verified_at: null,
+            rejected: false,
+            rejection_reason: null,
+          },
           payment: {
             uploaded: false,
             status: "pending",
@@ -730,62 +503,29 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
       });
     }
 
-    // ============================================================
-    // HOST PAYMENT SUMMARY
-    // ============================================================
-    const hostDetails = user.host_details || {};
-
-    const paymentRejected = hostDetails.payment_rejected || false;
-
-    // Determine the "latest" payment's effective status.
-    // If the latest payment is approved, use "approved".
-    // If host_details says payment_rejected, only override to "rejected"
-    // when the latest payment isn't already approved.
-    let finalPaymentStatus = latestPayment ? latestPayment.status : "pending";
-
-    if (paymentRejected && finalPaymentStatus !== "approved") {
-      finalPaymentStatus = "rejected";
-    }
-
-    const paymentObject = {
-      uploaded: !!(
-        latestPayment &&
-        latestPayment.receipt_images &&
-        latestPayment.receipt_images.length > 0
-      ),
-      status: finalPaymentStatus,
-      amount: latestPayment ? latestPayment.amount : null,
-      submitted_at: latestPayment ? latestPayment.created_at : null,
-      approved_at: hostDetails.payment_verified_at || null,
-      rejected: paymentRejected && finalPaymentStatus !== "approved",
-      rejection_reason:
-        paymentRejected && finalPaymentStatus !== "approved"
-          ? hostDetails.payment_rejection_reason || null
-          : null,
-      payment: latestPayment, // full latest payment object (or null)
-    };
-
-    // ============================================================
-    // FINAL VERIFICATION STATUS
-    // ============================================================
-    const verificationStatus = {
-      id: idBlock,
-      payment: paymentObject,
-      all_payments: allPayments,
-      overall_status: user.status,
-    };
+    const verificationStatus = buildVerificationStatus(user);
 
     return res.status(200).json({
       success: true,
-      data: verificationStatus,
+      data: {
+        ...verificationStatus,
+        pagination: {
+          page,
+          pageSize: take,
+          total_documents: idCount,
+          total_payments: paymentCount,
+          has_more_documents: skip + take < idCount,
+          has_more_payments: skip + take < paymentCount,
+        },
+      },
     });
   } catch (error) {
+    // eslint-disable-next-line no-console
     console.error("❌ Error fetching host verification status:", error);
-
     return res.status(500).json({
       success: false,
+      code: ErrorCodes.INTERNAL_ERROR,
       message: "Failed to fetch host verification status",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 });
