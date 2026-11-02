@@ -30,8 +30,8 @@ const SELF_EDITABLE_USER_FIELDS = [
   "locale",
 ];
 
-const ACCESS_TOKEN_EXPIRES_IN = process.env.JWT_EXPIRE || "15m";
-const REFRESH_TOKEN_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRE || "7d";
+const ACCESS_TOKEN_EXPIRES_IN = process.env.JWT_EXPIRE || "7d";
+const REFRESH_TOKEN_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRE || "30d";
 
 class AuthService {
   // ============================================================
