@@ -72,6 +72,15 @@ const createListing = asyncHandler(async (req, res) => {
     timezone,
   } = req.body;
 
+   // DEBUG: Values received by the controller
+  console.log("\n========== CREATE LISTING DEBUG ==========");
+  console.log("🌍 Timezone received:", timezone);
+  console.log("🖼️ Images received:", JSON.stringify(images, null, 2));
+  console.log("📍 Coordinates received:", coordinates);
+  console.log("===========================================\n");
+
+  // Continue with the rest of your existing code...
+
   // Support coordinates from frontend
   let finalLatitude = latitude;
   let finalLongitude = longitude;
