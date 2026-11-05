@@ -1,46 +1,43 @@
-// src/utils/sanitize.js
+
 /**
- * Escapes HTML special characters to prevent XSS / HTML injection.
- * @param {string} str
- * @returns {string}
+ * Escapes HTML special characters.
+ * Use when rendering untrusted text into HTML,
+ * NOT when storing URLs or database values.
  */
 function escapeHtml(str) {
   if (typeof str !== "string") return str;
+
   return str
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#x27;")
-    .replace(/\//g, "&#x2F;")
-    .replace(/`/g, "&#x60;")
-    .replace(/=/g, "&#x3D;");
+    .replace(/'/g, "&#x27;");
 }
 
 /**
- * Removes control characters (except whitespace/newlines/tabs).
- * @param {string} str
- * @returns {string}
+ * Removes control characters.
  */
 function stripControlChars(str) {
   if (typeof str !== "string") return str;
+
   // eslint-disable-next-line no-control-regex
   return str.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
 }
 
 /**
- * Recursively sanitizes strings inside an object.
- * Non-strings are passed through untouched.
- * @param {unknown} value
- * @param {{ html?: boolean }} [opts]
- * @returns {unknown}
+ * Recursively sanitizes strings.
  */
 function sanitizeValue(value, opts = { html: false }) {
   if (value == null) return value;
 
   if (typeof value === "string") {
     let out = stripControlChars(value).trim();
-    if (opts.html) out = escapeHtml(out);
+
+    if (opts.html) {
+      out = escapeHtml(out);
+    }
+
     return out;
   }
 
@@ -50,9 +47,11 @@ function sanitizeValue(value, opts = { html: false }) {
 
   if (typeof value === "object" && value.constructor === Object) {
     const out = {};
+
     for (const key of Object.keys(value)) {
       out[key] = sanitizeValue(value[key], opts);
     }
+
     return out;
   }
 
@@ -60,14 +59,18 @@ function sanitizeValue(value, opts = { html: false }) {
 }
 
 /**
- * Sanitizes all string fields of a request body.
- * By default, escapes HTML to block stored XSS.
- * @param {Record<string, any>} body
- * @param {{ html?: boolean }} [opts]
+ * Sanitizes request body.
+ * HTML escaping is disabled by default.
  */
-function sanitizeBody(body, opts = { html: true }) {
+function sanitizeBody(body, opts = { html: false }) {
   if (!body || typeof body !== "object") return body;
+
   return sanitizeValue(body, opts);
 }
 
-module.exports = { escapeHtml, stripControlChars, sanitizeValue, sanitizeBody };
+module.exports = {
+  escapeHtml,
+  stripControlChars,
+  sanitizeValue,
+  sanitizeBody,
+};
