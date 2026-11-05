@@ -5,6 +5,25 @@ const { redisHelpers } = require("../config/redis");
 const { asyncHandler } = require("../middleware/errorHandler");
 const { paginate, paginationMeta } = require("../utils/helpers");
 
+const DEFAULT_TIMEZONE = "Africa/Tripoli";
+
+const validateTimezone = (timezone) => {
+  if (typeof timezone !== "string" || !timezone.trim()) {
+    return null;
+  }
+
+  try {
+    // Validate against the browser/Node.js IANA timezone database
+    Intl.DateTimeFormat("en-US", {
+      timeZone: timezone.trim(),
+    });
+
+    return timezone.trim();
+  } catch {
+    return null;
+  }
+};
+
 // ============================================================
 // HAVERSINE DISTANCE
 // Calculate distance between two coordinates in kilometers
