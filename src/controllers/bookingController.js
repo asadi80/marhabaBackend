@@ -18,32 +18,21 @@ const emailService = require("../services/emailService");
 // @route   POST /api/v1/bookings
 // @access  Private
 
-
 const createBooking = asyncHandler(async (req, res) => {
-  const {
-    listing_id,
-    check_in,
-    check_out,
-    guests = 1,
-  } = req.body;
+  const { listing_id, check_in, check_out, guests = 1 } = req.body;
 
   // 1. Validate required fields
   if (!listing_id || !check_in || !check_out) {
     return res.status(400).json({
       success: false,
-      message:
-        "Listing, check-in, and check-out dates are required",
+      message: "Listing, check-in, and check-out dates are required",
     });
   }
 
   // 2. Validate guest count
   const guestCount = Number(guests);
 
-  if (
-    !Number.isInteger(guestCount) ||
-    guestCount < 1 ||
-    guestCount > 20
-  ) {
+  if (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > 20) {
     return res.status(400).json({
       success: false,
       message: "Guests must be an integer between 1 and 20",
@@ -52,10 +41,7 @@ const createBooking = asyncHandler(async (req, res) => {
 
   // 3. Validate date-only strings without using server timezone
   const isValidCalendarDate = (value) => {
-    if (
-      typeof value !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(value)
-    ) {
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
       return false;
     }
 
@@ -66,14 +52,10 @@ const createBooking = asyncHandler(async (req, res) => {
     return parsed.isValid && parsed.toISODate() === value;
   };
 
-  if (
-    !isValidCalendarDate(check_in) ||
-    !isValidCalendarDate(check_out)
-  ) {
+  if (!isValidCalendarDate(check_in) || !isValidCalendarDate(check_out)) {
     return res.status(400).json({
       success: false,
-      message:
-        "Invalid check-in or check-out date. Use YYYY-MM-DD.",
+      message: "Invalid check-in or check-out date. Use YYYY-MM-DD.",
     });
   }
 
@@ -152,8 +134,7 @@ const createBooking = asyncHandler(async (req, res) => {
   if (blockedUser) {
     return res.status(403).json({
       success: false,
-      message:
-        "You are blocked by this host and cannot book this listing.",
+      message: "You are blocked by this host and cannot book this listing.",
     });
   }
 
@@ -257,19 +238,11 @@ const createBooking = asyncHandler(async (req, res) => {
     const startDate = new Date(blockStart);
     const endDate = new Date(blockEnd);
 
-    if (
-      Number.isNaN(startDate.getTime()) ||
-      Number.isNaN(endDate.getTime())
-    ) {
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
       return false;
     }
 
-    return datesOverlap(
-      checkInDate,
-      checkOutDate,
-      startDate,
-      endDate,
-    );
+    return datesOverlap(checkInDate, checkOutDate, startDate, endDate);
   });
 
   if (isBlocked) {
@@ -338,9 +311,7 @@ const createBooking = asyncHandler(async (req, res) => {
     );
 
     if (guestEmail?.success) {
-      console.log(
-        `Booking created email sent to guest: ${req.user.email}`,
-      );
+      console.log(`Booking created email sent to guest: ${req.user.email}`);
     } else {
       console.error(
         "Booking email to guest failed:",
@@ -354,26 +325,23 @@ const createBooking = asyncHandler(async (req, res) => {
   // 16. Notify host
   try {
     if (listing.host?.email) {
-      const hostEmail =
-        await emailService.sendHostNewBookingEmail(
-          listing.host.email,
-          listing.host.name,
-          {
-            id: booking.id,
-            listingTitle: listing.title,
-            guestName: req.user.name,
-            guestEmail: req.user.email,
-            checkIn: checkInDate,
-            checkOut: checkOutDate,
-            guests: guestCount,
-            totalPrice,
-          },
-        );
+      const hostEmail = await emailService.sendHostNewBookingEmail(
+        listing.host.email,
+        listing.host.name,
+        {
+          id: booking.id,
+          listingTitle: listing.title,
+          guestName: req.user.name,
+          guestEmail: req.user.email,
+          checkIn: checkInDate,
+          checkOut: checkOutDate,
+          guests: guestCount,
+          totalPrice,
+        },
+      );
 
       if (hostEmail?.success) {
-        console.log(
-          `New booking email sent to host: ${listing.host.email}`,
-        );
+        console.log(`New booking email sent to host: ${listing.host.email}`);
       } else {
         console.error(
           "Booking email to host failed:",
@@ -727,11 +695,16 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
   // -----------------------------------------
 
   const validTransitions = {
-    pending: ["confirmed", "cancelled"],
-    confirmed: ["checked_in", "cancelled"],
-    checked_in: ["checked_out", "cancelled"],
+    pending: ["confirmed", "cancelled", "no_show"],
+
+    confirmed: ["checked_in", "cancelled", "no_show"],
+
+    checked_in: ["checked_out"],
+
     checked_out: [],
+
     cancelled: [],
+
     no_show: [],
   };
 
