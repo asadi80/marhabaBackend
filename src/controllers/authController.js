@@ -7,13 +7,82 @@ const { getDeviceInfo } = require("../utils/deviceInfo");
 const { AppError, ErrorCodes } = require("../utils/errors");
 const { buildVerificationStatus } = require("../services/verificationFormatter");
 const {
-  validateRegister,
-  validateLogin,
   validateUpdateMe,
-  validateChangePassword,
   validateAddIdImage,
-  validateEmailOnly,
 } = require("../validators/authValidators");
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/auth/google
+// Google Login / Signup
+// ---------------------------------------------------------------------------
+const googleLogin = asyncHandler(async (req, res) => {
+  const { idToken, accountType = "traveler" } = req.body || {};
+
+  if (!idToken || typeof idToken !== "string") {
+    return res.status(400).json({
+      success: false,
+      code: ErrorCodes.INVALID_INPUT,
+      message: "Google ID token is required",
+    });
+  }
+
+  if (!["traveler", "host"].includes(accountType)) {
+    return res.status(400).json({
+      success: false,
+      code: ErrorCodes.INVALID_INPUT,
+      message: "Invalid account type",
+    });
+  }
+
+  try {
+    const deviceInfo = getDeviceInfo(req);
+
+    const result = await authService.loginWithGoogle(
+      idToken,
+      accountType,
+      deviceInfo
+    );
+
+    let verificationStatus = null;
+
+    if (result.user.role === "host") {
+      verificationStatus = buildVerificationStatus(result.user);
+    }
+
+    return res.status(result.isNewUser ? 201 : 200).json({
+      success: true,
+      message: result.isNewUser
+        ? "Account created successfully"
+        : result.user.loginMessage || "Login successful",
+      data: {
+        user: maskSensitiveData(result.user),
+        tokens: result.tokens,
+        isNewUser: result.isNewUser,
+        requiresIdUpload: result.user.requiresIdUpload || false,
+        isHostApproved: result.user.isHostApproved !== undefined
+          ? result.user.isHostApproved
+          : true,
+        verificationStatus,
+      },
+    });
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.status).json({
+        success: false,
+        code: error.code,
+        message: error.message,
+      });
+    }
+
+    console.error("Google authentication error:", error);
+
+    return res.status(500).json({
+      success: false,
+      code: ErrorCodes.INTERNAL_ERROR,
+      message: "Google authentication failed",
+    });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -538,18 +607,11 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  register,
-  login,
+  googleLogin,
   logout,
   refreshToken,
-  verifyEmail,
-  resendVerification,
-  checkVerificationStatus,
-  forgotPassword,
-  resetPassword,
   getMe,
   updateMe,
-  changePassword,
   addIdImage,
   getHostVerificationStatus,
 };
