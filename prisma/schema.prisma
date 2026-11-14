@@ -13,49 +13,48 @@ datasource db {
 // ============================================================
 
 model User {
-  id            String   @id @default(uuid()) @db.Uuid
-  name          String   @db.VarChar(255)
-  email         String   @unique @db.VarChar(255)
+  id               String   @id @default(uuid()) @db.Uuid
+  name             String   @db.VarChar(255)
+  email            String   @unique @db.VarChar(255)
 
   // Google identity
-  google_id     String?  @unique @db.VarChar(255)
-  profile_image String?  @db.Text
+  google_id        String?  @unique @db.VarChar(255)
+  profile_image    String?  @db.Text
 
-  phone_number  String?  @db.VarChar(50)
+  phone_number     String?  @db.VarChar(50)
 
   // traveler | host
-  account_type  String   @default("traveler") @db.VarChar(50)
+  account_type     String   @default("traveler") @db.VarChar(50)
 
   // user | admin | super_admin
-  role          String   @default("user") @db.VarChar(50)
+  role             String   @default("user") @db.VarChar(50)
 
   // Traveler: active | pending | suspended
   // Host: pending | confirmed | suspended
-  status        String   @default("active") @db.VarChar(50)
+  status           String   @default("active") @db.VarChar(50)
 
   status_reason    String?  @db.Text
   host_expiry_date DateTime?
 
   // Soft deletion
-  deleted_at DateTime? @db.Timestamp
+  deleted_at       DateTime? @db.Timestamp
 
-  last_active DateTime @default(now()) @db.Timestamp
-  created_at  DateTime @default(now()) @db.Timestamp
-  updated_at  DateTime @default(now()) @updatedAt @db.Timestamp
+  last_active      DateTime @default(now()) @db.Timestamp
+  created_at       DateTime @default(now()) @db.Timestamp
+  updated_at       DateTime @default(now()) @updatedAt @db.Timestamp
 
-  host_details Json @default("{\"rating\":0,\"totalListings\":0,\"verified\":false,\"id_verified\":false,\"id_verified_at\":null,\"id_rejected\":false,\"id_rejection_reason\":null,\"payment_verified\":false,\"payment_verified_at\":null,\"payment_rejected\":false,\"payment_rejection_reason\":null,\"notificationSent\":{\"oneWeek\":false,\"twoDays\":false}}") @db.JsonB
+  host_details     Json     @default("{\"rating\":0,\"totalListings\":0,\"verified\":false,\"id_verified\":false,\"id_verified_at\":null,\"id_rejected\":false,\"id_rejection_reason\":null,\"payment_verified\":false,\"payment_verified_at\":null,\"payment_rejected\":false,\"payment_rejection_reason\":null,\"notificationSent\":{\"oneWeek\":false,\"twoDays\":false}}") @db.JsonB
+  user_details     Json     @default("{\"preferences\":{},\"bookings\":[]}") @db.JsonB
 
-  user_details Json @default("{\"preferences\":{},\"bookings\":[]}") @db.JsonB
+  sessions         UserSession[]
+  events           UserEvent[]
+  listings         Listing[]
+  bookings         Booking[]
 
-  sessions UserSession[]
-  events   UserEvent[]
-  listings Listing[]
-  bookings Booking[]
+  blocked_users    HostBlockedUser[] @relation("host_blocked")
+  blocked_by       HostBlockedUser[] @relation("user_blocked")
 
-  blocked_users HostBlockedUser[] @relation("host_blocked")
-  blocked_by    HostBlockedUser[] @relation("user_blocked")
-
-  id_documents UserIdDocument[] @relation("user_id_documents")
+  id_documents     UserIdDocument[] @relation("user_id_documents")
   reviewed_id_documents UserIdDocument[] @relation("id_document_reviewer")
 
   host_subscription_payments HostSubscriptionPayment[]
@@ -71,41 +70,29 @@ model User {
 // ============================================================
 
 model UserIdDocument {
-  id String @id @default(uuid()) @db.Uuid
+  id               String   @id @default(uuid()) @db.Uuid
+  user_id          String   @db.Uuid
 
-  user_id String @db.Uuid
+  document_type    String   @default("national_id") @db.VarChar(50)
+  side             String   @default("front") @db.VarChar(20)
 
-  document_type String @default("national_id") @db.VarChar(50)
-  side          String @default("front") @db.VarChar(20)
+  file_url         String   @db.Text
+  file_name        String?  @db.VarChar(255)
+  file_type        String?  @db.VarChar(100)
 
-  file_url  String  @db.Text
-  file_name String? @db.VarChar(255)
-  file_type String? @db.VarChar(100)
+  status           String   @default("pending") @db.VarChar(20)
 
-  status String @default("pending") @db.VarChar(20)
+  rejection_reason String?  @db.Text
+  admin_notes      String?  @db.Text
 
-  rejection_reason String? @db.Text
-  admin_notes      String? @db.Text
+  reviewed_at      DateTime? @db.Timestamp
+  reviewed_by      String?   @db.Uuid
 
-  reviewed_at DateTime? @db.Timestamp
-  reviewed_by String?   @db.Uuid
+  created_at       DateTime @default(now()) @db.Timestamp
+  updated_at       DateTime @default(now()) @updatedAt @db.Timestamp
 
-  created_at DateTime @default(now()) @db.Timestamp
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamp
-
-  user User @relation(
-    "user_id_documents",
-    fields: [user_id],
-    references: [id],
-    onDelete: Restrict
-  )
-
-  reviewer User? @relation(
-    "id_document_reviewer",
-    fields: [reviewed_by],
-    references: [id],
-    onDelete: SetNull
-  )
+  user             User     @relation("user_id_documents", fields: [user_id], references: [id], onDelete: Restrict)
+  reviewer         User?    @relation("id_document_reviewer", fields: [reviewed_by], references: [id], onDelete: SetNull)
 
   @@index([user_id])
   @@index([status])
@@ -135,11 +122,7 @@ model UserSession {
   refresh_token_hash String?   @unique @db.Text
   expires_at         DateTime? @db.Timestamp
 
-  user User @relation(
-    fields: [user_id],
-    references: [id],
-    onDelete: Cascade
-  )
+  user               User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id, is_active])
   @@index([expires_at])
@@ -156,11 +139,7 @@ model UserEvent {
   metadata   Json?    @db.JsonB
   created_at DateTime @default(now()) @db.Timestamp
 
-  user User @relation(
-    fields: [user_id],
-    references: [id],
-    onDelete: Restrict
-  )
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Restrict)
 
   @@index([user_id])
   @@index([event_type])
@@ -188,12 +167,10 @@ model Listing {
   host_id              String   @db.Uuid
   rules                String[] @default([])
 
-  cancellation_policy Json @default("{\"type\":\"flexible\",\"description\":\"\",\"rules\":[]}") @db.JsonB
+  cancellation_policy Json     @default("{\"type\":\"flexible\",\"description\":\"\",\"rules\":[]}") @db.JsonB
 
   status               String   @default("active") @db.VarChar(20)
   is_active            Boolean  @default(true)
-
-  // Soft deletion
   deleted_at           DateTime? @db.Timestamp
 
   blocked_dates        Json     @default("[]") @db.JsonB
@@ -202,13 +179,8 @@ model Listing {
   created_at           DateTime @default(now()) @db.Timestamp
   updated_at           DateTime @default(now()) @updatedAt @db.Timestamp
 
-  host User @relation(
-    fields: [host_id],
-    references: [id],
-    onDelete: Restrict
-  )
-
-  bookings Booking[]
+  host                 User     @relation(fields: [host_id], references: [id], onDelete: Restrict)
+  bookings             Booking[]
 
   @@index([host_id])
   @@index([status])
@@ -222,37 +194,27 @@ model Listing {
 // ============================================================
 
 model Booking {
-  id          String   @id @default(uuid()) @db.Uuid
-  listing_id  String   @db.Uuid
-  user_id     String   @db.Uuid
+  id             String   @id @default(uuid()) @db.Uuid
+  listing_id     String   @db.Uuid
+  user_id        String   @db.Uuid
 
-  check_in    DateTime @db.Timestamp
-  check_out   DateTime @db.Timestamp
+  check_in       DateTime @db.Timestamp
+  check_out      DateTime @db.Timestamp
 
-  total_price Decimal  @db.Decimal(10, 2)
-  guests      Int      @default(1)
+  total_price    Decimal  @db.Decimal(10, 2)
+  guests         Int      @default(1)
 
   checked_in_at  DateTime? @db.Timestamp
   checked_out_at DateTime? @db.Timestamp
 
-  no_show Boolean @default(false)
+  no_show        Boolean  @default(false)
+  status         String   @default("pending") @db.VarChar(20)
 
-  status     String   @default("pending") @db.VarChar(20)
+  created_at     DateTime @default(now()) @db.Timestamp
+  updated_at     DateTime @default(now()) @updatedAt @db.Timestamp
 
-  created_at DateTime @default(now()) @db.Timestamp
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamp
-
-  listing Listing @relation(
-    fields: [listing_id],
-    references: [id],
-    onDelete: Restrict
-  )
-
-  user User @relation(
-    fields: [user_id],
-    references: [id],
-    onDelete: Restrict
-  )
+  listing        Listing  @relation(fields: [listing_id], references: [id], onDelete: Restrict)
+  user           User     @relation(fields: [user_id], references: [id], onDelete: Restrict)
 
   blocked_entries HostBlockedUser[]
 
@@ -275,25 +237,9 @@ model HostBlockedUser {
 
   created_at DateTime @default(now()) @db.Timestamp
 
-  host User @relation(
-    "host_blocked",
-    fields: [host_id],
-    references: [id],
-    onDelete: Restrict
-  )
-
-  user User @relation(
-    "user_blocked",
-    fields: [user_id],
-    references: [id],
-    onDelete: Restrict
-  )
-
-  booking Booking? @relation(
-    fields: [booking_id],
-    references: [id],
-    onDelete: SetNull
-  )
+  host       User     @relation("host_blocked", fields: [host_id], references: [id], onDelete: Restrict)
+  user       User     @relation("user_blocked", fields: [user_id], references: [id], onDelete: Restrict)
+  booking    Booking? @relation(fields: [booking_id], references: [id], onDelete: SetNull)
 
   @@unique([host_id, user_id])
   @@index([host_id])
@@ -307,31 +253,25 @@ model HostBlockedUser {
 // ============================================================
 
 model HostSubscriptionPayment {
-  id      String @id @default(uuid()) @db.Uuid
-  host_id String @db.Uuid
+  id            String   @id @default(uuid()) @db.Uuid
+  host_id       String   @db.Uuid
 
-  amount Decimal @db.Decimal(10, 2)
-
-  status String @default("pending") @db.VarChar(20)
+  amount        Decimal  @db.Decimal(10, 2)
+  status        String   @default("pending") @db.VarChar(20)
 
   receipt_images String[] @default([])
 
-  paid_at DateTime? @db.Timestamp
+  paid_at       DateTime? @db.Timestamp
+  period_start  DateTime? @db.Timestamp
+  period_end    DateTime? @db.Timestamp
 
-  period_start DateTime? @db.Timestamp
-  period_end   DateTime? @db.Timestamp
+  reference     String?  @db.VarChar(255)
+  notes         String?  @db.Text
 
-  reference String? @db.VarChar(255)
-  notes     String? @db.Text
+  created_at    DateTime @default(now()) @db.Timestamp
+  updated_at    DateTime @default(now()) @updatedAt @db.Timestamp
 
-  created_at DateTime @default(now()) @db.Timestamp
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamp
-
-  host User @relation(
-    fields: [host_id],
-    references: [id],
-    onDelete: Restrict
-  )
+  host          User     @relation(fields: [host_id], references: [id], onDelete: Restrict)
 
   @@index([host_id])
   @@index([host_id, status])
