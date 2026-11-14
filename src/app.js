@@ -78,8 +78,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // Explicitly handle preflight requests before rate limiters and routes.
-app.options("*", cors(corsOptions));
-
+app.options(/.*/, cors(corsOptions));
 // ---------------------------------------------------------------------------
 // 4) Compression
 // ---------------------------------------------------------------------------
