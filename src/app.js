@@ -43,39 +43,27 @@ const allowedOrigins = [
   "https://mar-haba.ly",
   "https://www.mar-haba.ly",
   "https://dashboard.mar-haba.ly",
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5174",
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
 const corsOptions = {
   origin(origin, callback) {
-    // Non-browser clients (Postman, mobile, server-to-server) send no Origin.
-    if (!origin) return callback(null, true);
-
-    const isLocalhost =
-      /^http:\/\/localhost(:\d+)?$/.test(origin) ||
-      /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
-
-    if (isLocalhost || allowedOrigins.includes(origin)) {
-      if (process.env.NODE_ENV === "development") {
-        // eslint-disable-next-line no-console
-        console.log("✅ CORS allowed:", origin);
-      }
+    if (!origin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
-    if (process.env.NODE_ENV === "development") {
-      // eslint-disable-next-line no-console
-      console.log("❌ CORS blocked:", origin);
-    }
-
-    // Return an explicit 403 instead of a generic 500 via errorHandler.
-    const err = new Error(`Not allowed by CORS: ${origin}`);
-    err.status = 403;
-    err.code = "CORS_FORBIDDEN";
-    return callback(err);
+    console.error("❌ CORS blocked origin:", origin);
+    return callback(null, false);
   },
+
   credentials: true,
+
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+
   allowedHeaders: [
     "Content-Type",
     "Authorization",
@@ -83,10 +71,14 @@ const corsOptions = {
     "Accept",
     "Origin",
   ],
+
   optionsSuccessStatus: 204,
 };
 
 app.use(cors(corsOptions));
+
+// Explicitly handle preflight requests before rate limiters and routes.
+app.options("*", cors(corsOptions));
 
 // ---------------------------------------------------------------------------
 // 4) Compression
