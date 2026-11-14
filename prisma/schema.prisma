@@ -18,6 +18,8 @@ model User {
   name          String   @db.VarChar(255)
   email         String   @unique @db.VarChar(255)
 
+  password_hash String? @db.VarChar(255)
+
   // ==========================================================
   // GOOGLE IDENTITY
   // ==========================================================

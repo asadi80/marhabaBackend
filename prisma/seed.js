@@ -1,50 +1,72 @@
+
 const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcrypt");
 
 const prisma = new PrismaClient();
 
-async function resetAndSeed() {
+async function seedSuperAdmin() {
   try {
-    console.log("🔄 Resetting database and seeding admin...");
+    const name = process.env.ADMIN_NAME?.trim();
+    const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+    const password = process.env.ADMIN_PASSWORD;
 
-    // Step 1: Delete all data in correct order (respect foreign keys)
-    console.log("🗑️  Deleting all existing data...");
+    if (!name || !email || !password) {
+      throw new Error(
+        "ADMIN_NAME, ADMIN_EMAIL, and ADMIN_PASSWORD are required."
+      );
+    }
 
-    await prisma.bookingPayment.deleteMany({});
-    await prisma.hostBlockedUser.deleteMany({});
-    await prisma.hostPaymentMethod.deleteMany({});
-    await prisma.booking.deleteMany({});
-    await prisma.userSession.deleteMany({});
-    await prisma.userEvent.deleteMany({});
-    await prisma.listing.deleteMany({});
-    await prisma.user.deleteMany({});
+    if (password.length < 12) {
+      throw new Error("Admin password must be at least 12 characters.");
+    }
 
-    console.log("✅ All data cleared!");
+    console.log("Creating Super Admin...");
 
-    // Step 2: Create super admin
-    console.log("👤 Creating super admin...");
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existingUser) {
+      throw new Error(
+        `An account with ${email} already exists. No changes were made.`
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
 
     const admin = await prisma.user.create({
       data: {
-        name: "Abdurraouf Sadi",
-        email: "abdurraouf@mar-haba.ly",
-        password_hash: await bcrypt.hash("Abdo1702*)", 10),
-        phone_number: "+218910000001",
-        role: "super_admin",
+        name,
+        email,
+        password_hash: passwordHash,
+
+        account_type: "super_admin",
+        role: "admin",
         status: "confirmed",
-        email_verified: true,
+
+        email_verified_at: new Date(),
+        auth_version: 0,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        account_type: true,
+        role: true,
+        status: true,
+        created_at: true,
       },
     });
 
-    console.log("✅ Super admin created:", admin.email);
-    console.log("🎉 Done!");
-
+    console.log("Super Admin created successfully:");
+    console.log(admin);
   } catch (error) {
-    console.error("❌ Error:", error);
-    process.exit(1);
+    console.error("Seed failed:", error.message);
+    process.exitCode = 1;
   } finally {
     await prisma.$disconnect();
   }
 }
 
-resetAndSeed();
+seedSuperAdmin();
