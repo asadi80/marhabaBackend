@@ -238,14 +238,28 @@ class AuthService {
     }
   }
 
+  
   // ==========================================================
   // ADMIN LOGIN
+  // POST /api/v1/dashboard/auth/login
+  //
+  // Supported administrator account types:
+  //   role: "admin", account_type: "admin"
+  //   role: "admin", account_type: "super_admin"
   // ==========================================================
 
   async loginAdmin(email, password, deviceInfo = {}) {
+    // --------------------------------------------------------
+    // 1. Validate input
+    // --------------------------------------------------------
+
     const normalizedEmail = normalizeEmail(email);
 
-    if (!normalizedEmail || typeof password !== "string" || !password) {
+    if (
+      !normalizedEmail ||
+      typeof password !== "string" ||
+      !password
+    ) {
       throw createAppError(
         ErrorCodes.INVALID_CREDENTIALS,
         "Invalid email or password",
@@ -253,18 +267,30 @@ class AuthService {
       );
     }
 
+    // --------------------------------------------------------
+    // 2. Find administrator
+    // --------------------------------------------------------
+
     const user = await prisma.user.findUnique({
       where: {
         email: normalizedEmail,
       },
     });
 
-    // Use the same generic error for all credential failures.
+    // --------------------------------------------------------
+    // 3. Validate administrator account
+    //
+    // role = admin
+    // account_type = admin OR super_admin
+    //
+    // These fields intentionally have different meanings.
+    // --------------------------------------------------------
+
     if (
       !user ||
       user.deleted_at ||
-      !["admin", "super_admin"].includes(user.role) ||
-      user.account_type !== user.role ||
+      user.role !== "admin" ||
+      !["admin", "super_admin"].includes(user.account_type) ||
       !user.password_hash
     ) {
       throw createAppError(
@@ -274,6 +300,10 @@ class AuthService {
       );
     }
 
+    // --------------------------------------------------------
+    // 4. Check account status
+    // --------------------------------------------------------
+
     if (user.status !== "confirmed") {
       throw createAppError(
         ErrorCodes.FORBIDDEN,
@@ -281,6 +311,10 @@ class AuthService {
         403,
       );
     }
+
+    // --------------------------------------------------------
+    // 5. Verify password
+    // --------------------------------------------------------
 
     const passwordMatches = await this.comparePassword(
       password,
@@ -295,11 +329,21 @@ class AuthService {
       );
     }
 
+    // --------------------------------------------------------
+    // 6. Prepare session information
+    // --------------------------------------------------------
+
     const now = new Date();
     const deviceData = getDeviceData(deviceInfo);
 
-    const result = await prisma.$transaction(async (tx) => {
-      // Revoke previous sessions for this administrator.
+    // --------------------------------------------------------
+    // 7. Create administrator session
+    // --------------------------------------------------------
+
+    const session = await prisma.$transaction(async (tx) => {
+      // Revoke previous administrator sessions.
+      // This enforces one active session per administrator.
+
       await tx.userSession.updateMany({
         where: {
           user_id: user.id,
@@ -312,7 +356,7 @@ class AuthService {
         },
       });
 
-      const session = await tx.userSession.create({
+      const newSession = await tx.userSession.create({
         data: {
           user_id: user.id,
           device: deviceData.device,
@@ -335,29 +379,41 @@ class AuthService {
         },
       });
 
-      return session;
+      return newSession;
     });
+
+    // --------------------------------------------------------
+    // 8. Generate ADMIN-scoped tokens
+    // --------------------------------------------------------
 
     const tokens = this.generateTokens(
       user.id,
-      result.id,
+      session.id,
       user.auth_version,
       "admin",
     );
 
+    // --------------------------------------------------------
+    // 9. Save refresh token hash
+    // --------------------------------------------------------
+
     try {
       await prisma.userSession.update({
         where: {
-          id: result.id,
+          id: session.id,
         },
         data: {
-          refresh_token_hash: this.hashToken(tokens.refreshToken),
+          refresh_token_hash: this.hashToken(
+            tokens.refreshToken,
+          ),
         },
       });
     } catch (error) {
+      // Revoke the session if refresh token storage fails.
+
       await prisma.userSession.updateMany({
         where: {
-          id: result.id,
+          id: session.id,
           user_id: user.id,
         },
         data: {
@@ -367,12 +423,21 @@ class AuthService {
         },
       });
 
+      console.error(
+        "Administrator refresh token storage failed:",
+        error.message,
+      );
+
       throw createAppError(
         ErrorCodes.INTERNAL_ERROR,
         "Failed to create administrator session",
         500,
       );
     }
+
+    // --------------------------------------------------------
+    // 10. Record administrator login event
+    // --------------------------------------------------------
 
     try {
       await prisma.userEvent.create({
@@ -381,6 +446,7 @@ class AuthService {
           event_type: "admin_login",
           metadata: {
             role: user.role,
+            account_type: user.account_type,
             ip: deviceData.ip_address,
             device: deviceData.device,
             browser: deviceData.browser,
@@ -389,8 +455,15 @@ class AuthService {
         },
       });
     } catch (error) {
-      console.error("Failed to record administrator login:", error.message);
+      console.error(
+        "Failed to record administrator login:",
+        error.message,
+      );
     }
+
+    // --------------------------------------------------------
+    // 11. Return safe administrator information
+    // --------------------------------------------------------
 
     const safeUser = {
       id: user.id,
@@ -405,11 +478,16 @@ class AuthService {
       created_at: user.created_at,
     };
 
+    // --------------------------------------------------------
+    // 12. Return authentication result
+    // --------------------------------------------------------
+
     return {
       user: safeUser,
       tokens,
     };
   }
+
 
   // ==========================================================
   // GOOGLE LOGIN / SIGNUP
