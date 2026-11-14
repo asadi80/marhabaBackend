@@ -57,6 +57,7 @@ const protect = async (req, res, next) => {
         name: true,
         email: true,
         role: true,
+        account_type: true,
         status: true,
       },
     });
@@ -123,12 +124,19 @@ const isVerified = (req, res, next) => {
 
 // Check if user is host
 const isHost = (req, res, next) => {
-  if (req.user?.role !== 'host' && req.user?.role !== 'admin') {
+  const isHostAccount =
+    req.user?.account_type === "host" ||
+    req.user?.role === "host" ||
+    req.user?.role === "admin" ||
+    req.user?.role === "super_admin";
+
+  if (!isHostAccount) {
     return res.status(403).json({
       success: false,
-      message: 'Host account required for this action',
+      message: "Host account required for this action",
     });
   }
+
   next();
 };
 
