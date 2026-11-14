@@ -7,17 +7,29 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
+
 model User {
   id               String    @id @default(uuid()) @db.Uuid
   name             String    @db.VarChar(255)
   email            String    @unique @db.VarChar(255)
-  password_hash    String    @db.VarChar(255)
-  phone_number     String    @db.VarChar(50)
+
+  // Google authentication
+  google_id        String?   @unique @db.VarChar(255)
+
+  // No password is required for Google-only accounts
+  password_hash    String?   @db.VarChar(255)
+
+  // Google does not guarantee a phone number
+  phone_number     String?   @db.VarChar(50)
+
   role             String    @default("user") @db.VarChar(50)
   status           String    @default("pending") @db.VarChar(50)
   status_reason    String?   @db.Text
   host_expiry_date DateTime?
 
+  // Retain these for compatibility with existing records.
+  // Google-verified accounts will have email_verified = true.
   email_verified             Boolean   @default(false)
   email_verification_token   String?   @db.VarChar(255)
   email_verification_expires DateTime?
@@ -41,10 +53,7 @@ model User {
   blocked_users HostBlockedUser[] @relation("host_blocked")
   blocked_by    HostBlockedUser[] @relation("user_blocked")
 
-  // ID documents belonging to this user
   id_documents UserIdDocument[] @relation("user_id_documents")
-
-  // ID documents reviewed by this admin
   reviewed_id_documents UserIdDocument[] @relation("id_document_reviewer")
 
   host_subscription_payments HostSubscriptionPayment[]

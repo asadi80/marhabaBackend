@@ -58,7 +58,6 @@ const protect = async (req, res, next) => {
         email: true,
         role: true,
         status: true,
-        email_verified: true,
       },
     });
 
