@@ -5,7 +5,9 @@ const { asyncHandler } = require("../middleware/errorHandler");
 const { maskSensitiveData } = require("../utils/helpers");
 const { getDeviceInfo } = require("../utils/deviceInfo");
 const { AppError, ErrorCodes } = require("../utils/errors");
-const { buildVerificationStatus } = require("../services/verificationFormatter");
+const {
+  buildVerificationStatus,
+} = require("../services/verificationFormatter");
 const {
   validateUpdateMe,
   validateAddIdImage,
@@ -13,11 +15,12 @@ const {
 
 // ---------------------------------------------------------------------------
 // POST /api/v1/auth/google
-// Google Login / Signup
+// Google Login / Signup — Travelers and Hosts only
 // ---------------------------------------------------------------------------
 const googleLogin = asyncHandler(async (req, res) => {
-  const { idToken, accountType = "traveler" } = req.body || {};
+  const { idToken, intent, accountType } = req.body || {};
 
+  // Validate Google ID token
   if (!idToken || typeof idToken !== "string") {
     return res.status(400).json({
       success: false,
@@ -26,11 +29,32 @@ const googleLogin = asyncHandler(async (req, res) => {
     });
   }
 
-  if (!["traveler", "host"].includes(accountType)) {
+  // Explicitly distinguish login from signup
+  if (!["login", "signup"].includes(intent)) {
     return res.status(400).json({
       success: false,
       code: ErrorCodes.INVALID_INPUT,
-      message: "Invalid account type",
+      message: "Invalid authentication intent",
+    });
+  }
+
+  // Only signup can select an account type
+  if (intent === "signup") {
+    if (!["traveler", "host"].includes(accountType)) {
+      return res.status(400).json({
+        success: false,
+        code: ErrorCodes.INVALID_INPUT,
+        message: "Account type must be traveler or host",
+      });
+    }
+  }
+
+  // Login must not use a client-selected account type
+  if (intent === "login" && accountType !== undefined) {
+    return res.status(400).json({
+      success: false,
+      code: ErrorCodes.INVALID_INPUT,
+      message: "Account type must not be provided during login",
     });
   }
 
@@ -39,13 +63,28 @@ const googleLogin = asyncHandler(async (req, res) => {
 
     const result = await authService.loginWithGoogle(
       idToken,
-      accountType,
-      deviceInfo
+      {
+        intent,
+        ...(intent === "signup" ? { accountType } : {}),
+      },
+      deviceInfo,
     );
+
+    // Public Google authentication must never authenticate admin accounts
+    if (
+      result.user.role !== "user" ||
+      !["traveler", "host"].includes(result.user.account_type)
+    ) {
+      throw new AppError(
+        "This account cannot use Google authentication here",
+        403,
+        ErrorCodes.FORBIDDEN,
+      );
+    }
 
     let verificationStatus = null;
 
-    if (result.user.role === "host") {
+    if (result.user.account_type === "host") {
       verificationStatus = buildVerificationStatus(result.user);
     }
 
@@ -59,9 +98,10 @@ const googleLogin = asyncHandler(async (req, res) => {
         tokens: result.tokens,
         isNewUser: result.isNewUser,
         requiresIdUpload: result.user.requiresIdUpload || false,
-        isHostApproved: result.user.isHostApproved !== undefined
-          ? result.user.isHostApproved
-          : true,
+        isHostApproved:
+          result.user.isHostApproved !== undefined
+            ? result.user.isHostApproved
+            : true,
         verificationStatus,
       },
     });
@@ -95,7 +135,9 @@ function handleServiceError(error, res, fallbackMessage, fallbackStatus = 400) {
       success: false,
       code: error.code,
       message: error.message,
-      ...(error.meta && Object.keys(error.meta).length ? { errors: error.meta } : {}),
+      ...(error.meta && Object.keys(error.meta).length
+        ? { errors: error.meta }
+        : {}),
     });
   }
 
@@ -175,7 +217,7 @@ const login = asyncHandler(async (req, res) => {
     // For host users, compute verification status from the same formatter
     // used by GET /host-verification-status so the shape never drifts.
     let verificationStatus = null;
-    if (result.user.role === "host") {
+    if (result.user.account_type === "host") {
       verificationStatus = buildVerificationStatus(result.user);
     }
 
@@ -194,7 +236,10 @@ const login = asyncHandler(async (req, res) => {
       },
     });
   } catch (error) {
-    if (error instanceof AppError && error.code === ErrorCodes.EMAIL_NOT_VERIFIED) {
+    if (
+      error instanceof AppError &&
+      error.code === ErrorCodes.EMAIL_NOT_VERIFIED
+    ) {
       const email = error.meta?.email || credentials.email;
       return res.status(403).json({
         success: false,
@@ -229,7 +274,9 @@ const login = asyncHandler(async (req, res) => {
 const logout = asyncHandler(async (req, res) => {
   const sessionId = req.body?.session_id || null;
   await authService.logout(req.user.id, sessionId);
-  return res.status(200).json({ success: true, message: "Logged out successfully" });
+  return res
+    .status(200)
+    .json({ success: true, message: "Logged out successfully" });
 });
 
 // ---------------------------------------------------------------------------
@@ -276,7 +323,8 @@ const verifyEmail = asyncHandler(async (req, res) => {
       return redirectWith({
         status: "expired",
         email: result.email || "",
-        message: "Your verification link has expired. Please request a new one.",
+        message:
+          "Your verification link has expired. Please request a new one.",
       });
     }
 
@@ -537,7 +585,7 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
     }
 
     // Non-host: return empty shape
-    if (user.role !== "host") {
+    if (user.account_type !== "host") {
       return res.status(200).json({
         success: true,
         data: {
