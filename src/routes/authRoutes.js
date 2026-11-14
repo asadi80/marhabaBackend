@@ -1,32 +1,54 @@
+
 const express = require("express");
 const router = express.Router();
 
 const authController = require("../controllers/authController");
-const { protect } = require("../middleware/auth");
-const { refreshLimiter } = require("../middleware/rateLimiter");
+const {
+  protectPublic,
+} = require("../middleware/auth");
 
-// Google signup / login
+const {
+  refreshLimiter,
+} = require("../middleware/rateLimiter");
+
+// Public Google authentication.
 router.post("/google", authController.googleLogin);
 
-// Refresh JWT
-router.post("/refresh", refreshLimiter, authController.refreshToken);
+// Public refresh only accepts public refresh tokens.
+router.post(
+  "/refresh",
+  refreshLimiter,
+  authController.refreshToken
+);
 
-// Protected routes
-router.get("/me", protect, authController.getMe);
-router.put("/me", protect, authController.updateMe);
+// All routes below require a public Traveler/Host access token.
+router.get(
+  "/me",
+  protectPublic,
+  authController.getMe
+);
 
-router.post("/logout", protect, authController.logout);
+router.put(
+  "/me",
+  protectPublic,
+  authController.updateMe
+);
 
-// Host verification
+router.post(
+  "/logout",
+  protectPublic,
+  authController.logout
+);
+
 router.get(
   "/host-verification-status",
-  protect,
+  protectPublic,
   authController.getHostVerificationStatus
 );
 
 router.post(
   "/me/id-image",
-  protect,
+  protectPublic,
   authController.addIdImage
 );
 

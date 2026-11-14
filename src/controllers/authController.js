@@ -271,13 +271,16 @@ const login = asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/v1/auth/logout
 // ---------------------------------------------------------------------------
+
 const logout = asyncHandler(async (req, res) => {
-  const sessionId = req.body?.session_id || null;
-  await authService.logout(req.user.id, sessionId);
-  return res
-    .status(200)
-    .json({ success: true, message: "Logged out successfully" });
+  await authService.logout(req.user.id, req.sessionId);
+
+  res.status(200).json({
+    success: true,
+    message: "Logged out successfully",
+  });
 });
+
 
 // ---------------------------------------------------------------------------
 // POST /api/v1/auth/refresh

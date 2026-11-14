@@ -1,112 +1,182 @@
+
 // src/routes/adminRoutes.js
+
 const express = require("express");
 const router = express.Router();
+
+// Controllers
 const adminController = require("../controllers/adminController");
-const { protect, authorize } = require("../middleware/auth");
+const adminAuthController = require("../controllers/adminAuthController");
+
+// Authentication middleware
+const {
+  protectAdmin,
+  authorize,
+} = require("../middleware/auth");
+
+// Rate limiting
+const {
+  refreshLimiter,
+} = require("../middleware/rateLimiter");
+
+// Validation middleware
 const {
   handleValidationErrors,
   commonValidators,
   userValidators,
-  listingValidators,
 } = require("../middleware/validation");
 
-// All admin routes are protected and require admin or super_admin role
-router.use(protect);
-router.use(authorize("admin", "super_admin"));
+// ============================================================
+// ADMIN AUTHENTICATION
+// These routes must be registered BEFORE dashboard protection.
+// ============================================================
 
-// ==================== Dashboard ====================
-// GET /api/v1/dashboard/stats
-router.get("/stats", adminController.getStats);
-
-// ==================== User Management ====================
-// GET /api/v1/admin/users
-router.get("/users", adminController.getUsers);
-
-// GET /api/v1/dashboard/users/:id
-router.get(
-  "/users/:id",
-  authorize("admin", "super_admin"),
-  commonValidators.id("id"),
-  handleValidationErrors,
-  adminController.getUserById,
+// POST /api/v1/admin/auth/login
+router.post(
+  "/auth/login",
+  adminAuthController.login
 );
 
-// PUT /api/v1/dashboard/users/:id
+// POST /api/v1/admin/auth/refresh
+router.post(
+  "/auth/refresh",
+  refreshLimiter,
+  adminAuthController.refresh
+);
+
+// ============================================================
+// PROTECT ADMIN DASHBOARD
+// All routes below require a valid Admin/Super Admin token.
+// ============================================================
+
+router.use(protectAdmin);
+router.use(authorize("admin", "super_admin"));
+
+// ============================================================
+// ADMIN AUTHENTICATED ACCOUNT
+// ============================================================
+
+// GET /api/v1/admin/auth/me
+router.get(
+  "/auth/me",
+  adminAuthController.me
+);
+
+// POST /api/v1/admin/auth/logout
+router.post(
+  "/auth/logout",
+  adminAuthController.logout
+);
+
+// ============================================================
+// DASHBOARD
+// ============================================================
+
+// GET /api/v1/admin/stats
+router.get(
+  "/stats",
+  adminController.getStats
+);
+
+// ============================================================
+// USER MANAGEMENT
+// ============================================================
+
+// GET /api/v1/admin/users
+router.get(
+  "/users",
+  adminController.getUsers
+);
+
+// GET /api/v1/admin/users/:id
+router.get(
+  "/users/:id",
+  commonValidators.id("id"),
+  handleValidationErrors,
+  adminController.getUserById
+);
+
+// PUT /api/v1/admin/users/:id
 router.put(
   "/users/:id",
-  authorize("admin", "super_admin"),
   commonValidators.id("id"),
   userValidators.updateProfile,
   handleValidationErrors,
-  adminController.updateUser,
+  adminController.updateUser
 );
 
 // DELETE /api/v1/admin/users/:id
+// Super Admin only.
 router.delete(
   "/users/:id",
-  authorize("admin", "super_admin"),
+  authorize("super_admin"),
   commonValidators.id("id"),
   handleValidationErrors,
-  adminController.deleteUser,
+  adminController.deleteUser
 );
 
-// POST /api/v1/admin/users (Create admin/super_admin)
+// POST /api/v1/admin/user/createAdmin
+// Super Admin only.
 router.post(
   "/user/createAdmin",
-  protect,
   authorize("super_admin"),
   userValidators.createAdmin,
   handleValidationErrors,
-  adminController.createAdmin,
+  adminController.createAdmin
 );
 
-// ==================== User Details ====================
+// ============================================================
+// USER DETAILS
+// ============================================================
+
 // GET /api/v1/admin/users/:id/listings
 router.get(
   "/users/:id/listings",
-  authorize("admin", "super_admin"),
   commonValidators.id("id"),
   handleValidationErrors,
-  adminController.getUserListings,
+  adminController.getUserListings
 );
 
 // GET /api/v1/admin/users/:id/bookings
 router.get(
   "/users/:id/bookings",
-  authorize("admin", "super_admin"),
   commonValidators.id("id"),
   handleValidationErrors,
-  adminController.getUserBookings,
+  adminController.getUserBookings
 );
 
 // GET /api/v1/admin/users/:id/sessions
 router.get(
   "/users/:id/sessions",
-  authorize("admin", "super_admin"),
   commonValidators.id("id"),
   handleValidationErrors,
-  adminController.getUserSessions,
+  adminController.getUserSessions
 );
 
 // GET /api/v1/admin/users/:id/events
 router.get(
   "/users/:id/events",
-  authorize("admin", "super_admin"),
   commonValidators.id("id"),
   handleValidationErrors,
-  adminController.getUserEvents,
+  adminController.getUserEvents
 );
 
-// ==================== Host Management ====================
+// ============================================================
+// HOST MANAGEMENT
+// ============================================================
+
 // GET /api/v1/admin/hosts/pending
-router.get("/hosts/pending", adminController.getPendingHosts);
+router.get(
+  "/hosts/pending",
+  adminController.getPendingHosts
+);
 
 // PUT /api/v1/admin/hosts/:id/approve
 router.put(
   "/hosts/:id/approve",
   commonValidators.id("id"),
   handleValidationErrors,
-  adminController.approveHost,
+  adminController.approveHost
 );
 
 // PUT /api/v1/admin/hosts/:id/reject
@@ -114,106 +184,113 @@ router.put(
   "/hosts/:id/reject",
   commonValidators.id("id"),
   handleValidationErrors,
-  adminController.rejectHost,
+  adminController.rejectHost
 );
 
-// ==================== Listing Management ====================
+// ============================================================
+// LISTING MANAGEMENT
+// ============================================================
+
 // GET /api/v1/admin/listings
-router.get("/listings", adminController.getAllListings);
+router.get(
+  "/listings",
+  adminController.getAllListings
+);
 
 // DELETE /api/v1/admin/listings/:id
 router.delete(
   "/listings/:id",
   commonValidators.id("id"),
   handleValidationErrors,
-  adminController.deleteListing,
+  adminController.deleteListing
 );
 
-// ==================== Reports ====================
+// ============================================================
+// REPORTS
+// ============================================================
+
 // GET /api/v1/admin/reports/users
 router.get(
   "/reports/users",
-  authorize("admin", "super_admin"),
-  handleValidationErrors,
-  adminController.getUserReport,
+  adminController.getUserReport
 );
 
 // GET /api/v1/admin/reports/revenue
 router.get(
   "/reports/revenue",
-  authorize("admin", "super_admin"),
-  handleValidationErrors,
-  adminController.getRevenueReport,
+  adminController.getRevenueReport
 );
 
-// ==================== Payment Management ====================
-// Payment stats
+// ============================================================
+// PAYMENT MANAGEMENT
+// ============================================================
+
+// GET /api/v1/admin/payments/stats
 router.get(
   "/payments/stats",
-  authorize("admin", "super_admin"),
-  handleValidationErrors,
-  adminController.getPaymentStats,
+  adminController.getPaymentStats
 );
 
-// Get all payments (with filters)
+// GET /api/v1/admin/payments
 router.get(
   "/payments",
-  authorize("admin", "super_admin"),
-  handleValidationErrors,
-  adminController.getPayments,  // <-- FIXED: Use adminController.getPayments
+  adminController.getPayments
 );
 
-// Get single payment
+// GET /api/v1/admin/payments/:paymentId
 router.get(
   "/payments/:paymentId",
-  authorize("admin", "super_admin"),
   commonValidators.id("paymentId"),
   handleValidationErrors,
-  adminController.getPayment,
+  adminController.getPayment
 );
 
-// Approve payment
+// PUT /api/v1/admin/payments/:paymentId/approve
 router.put(
   "/payments/:paymentId/approve",
-  authorize("admin", "super_admin"),
   commonValidators.id("paymentId"),
   handleValidationErrors,
-  adminController.approvePayment,
+  adminController.approvePayment
 );
 
-// Reject payment
+// PUT /api/v1/admin/payments/:paymentId/reject
 router.put(
   "/payments/:paymentId/reject",
-  authorize("admin", "super_admin"),
   commonValidators.id("paymentId"),
   handleValidationErrors,
-  adminController.rejectPayment,
+  adminController.rejectPayment
 );
 
+// ============================================================
+// IDENTITY DOCUMENT MANAGEMENT
+// ============================================================
+
+// PUT /api/v1/admin/doc/:documentId/reject
 router.put(
   "/doc/:documentId/reject",
-  authorize("admin", "super_admin"),
   commonValidators.id("documentId"),
   handleValidationErrors,
   adminController.rejectUserId
 );
 
+// PUT /api/v1/admin/doc/:documentId/pending
 router.put(
   "/doc/:documentId/pending",
-  authorize("admin", "super_admin"),
   commonValidators.id("documentId"),
   handleValidationErrors,
   adminController.setUserIdPending
 );
 
+// PUT /api/v1/admin/doc/:documentId/approve
 router.put(
   "/doc/:documentId/approve",
-  authorize("admin", "super_admin"),
   commonValidators.id("documentId"),
   handleValidationErrors,
   adminController.approveUserId
 );
 
-
+// ============================================================
+// EXPORT
+// ============================================================
 
 module.exports = router;

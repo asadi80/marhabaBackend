@@ -3,128 +3,189 @@ const authService = require("../services/authService");
 const { prisma } = require("../config/database");
 
 // ============================================================
-// PROTECT ROUTES
+// SHARED AUTHENTICATION MIDDLEWARE
 // ============================================================
 
-const protect = async (req, res, next) => {
-  let token;
+const protectWithAuthType = (expectedAuthType) => {
+  return async (req, res, next) => {
+    const authorization = req.headers.authorization;
 
-  if (
-    req.headers.authorization &&
-    req.headers.authorization.startsWith("Bearer ")
-  ) {
-    token = req.headers.authorization.split(" ")[1];
-  }
-
-  if (!token) {
-    return res.status(401).json({
-      success: false,
-      message: "Not authorized to access this route",
-    });
-  }
-
-  try {
-    // Only access tokens are accepted.
-    const decoded = authService.verifyToken(token, "access");
-
-    if (!decoded) {
+    if (!authorization || !authorization.startsWith("Bearer ")) {
       return res.status(401).json({
         success: false,
-        message: "Invalid or expired token",
+        code: "UNAUTHORIZED",
+        message: "Not authorized to access this route",
       });
     }
 
-    // Every protected user token must belong to a session.
-    if (!decoded.sessionId) {
+    const token = authorization.slice(7).trim();
+
+    if (!token) {
       return res.status(401).json({
         success: false,
-        message: "Invalid session. Please log in again.",
+        code: "TOKEN_INVALID",
+        message: "Access token is required",
       });
     }
 
-    // Load the session and verify that it is still active.
-    const session = await prisma.userSession.findUnique({
-      where: {
-        id: decoded.sessionId,
-      },
-      select: {
-        id: true,
-        user_id: true,
-        is_active: true,
-        expires_at: true,
-      },
-    });
+    try {
+      const decoded = authService.verifyToken(token, "access");
 
-    if (
-      !session ||
-      !session.is_active ||
-      session.user_id !== decoded.id ||
-      (session.expires_at && session.expires_at <= new Date())
-    ) {
+      if (
+        !decoded ||
+        !decoded.id ||
+        !decoded.sessionId ||
+        typeof decoded.authVersion !== "number"
+      ) {
+        return res.status(401).json({
+          success: false,
+          code: "TOKEN_INVALID",
+          message: "Invalid or expired access token",
+        });
+      }
+
+      // Tokens must explicitly identify their authentication scope.
+      // Old tokens without authType must be replaced by logging in again.
+      if (decoded.authType !== expectedAuthType) {
+        return res.status(403).json({
+          success: false,
+          code: "AUTH_TYPE_MISMATCH",
+          message:
+            expectedAuthType === "admin"
+              ? "Administrator authentication is required"
+              : "Public authentication is required",
+        });
+      }
+
+      const session = await prisma.userSession.findUnique({
+        where: {
+          id: decoded.sessionId,
+        },
+        select: {
+          id: true,
+          user_id: true,
+          is_active: true,
+          expires_at: true,
+        },
+      });
+
+      const now = new Date();
+
+      if (
+        !session ||
+        !session.is_active ||
+        session.user_id !== decoded.id ||
+        (session.expires_at && session.expires_at <= now)
+      ) {
+        return res.status(401).json({
+          success: false,
+          code: "SESSION_INVALID",
+          message: "Session has expired or been revoked. Please log in again.",
+        });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: {
+          id: decoded.id,
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone_number: true,
+          profile_image: true,
+          role: true,
+          account_type: true,
+          status: true,
+          status_reason: true,
+          auth_version: true,
+          deleted_at: true,
+          email_verified_at: true,
+          host_expiry_date: true,
+          created_at: true,
+        },
+      });
+
+      if (!user || user.deleted_at) {
+        return res.status(401).json({
+          success: false,
+          code: "USER_NOT_FOUND",
+          message: "Account not found or deleted",
+        });
+      }
+
+      if (decoded.authVersion !== user.auth_version) {
+        return res.status(401).json({
+          success: false,
+          code: "TOKEN_INVALID",
+          message: "Your session is no longer valid. Please log in again.",
+        });
+      }
+
+      if (user.status === "suspended" || user.status === "banned") {
+        return res.status(403).json({
+          success: false,
+          code: "ACCOUNT_RESTRICTED",
+          message: `Account is ${user.status}`,
+        });
+      }
+
+      // Enforce account type and role against the database,
+      // not merely against the token.
+      if (expectedAuthType === "admin") {
+        const isValidAdmin =
+          ["admin", "super_admin"].includes(user.role) &&
+          user.account_type === user.role &&
+          user.status === "confirmed";
+
+        if (!isValidAdmin) {
+          return res.status(403).json({
+            success: false,
+            code: "ADMIN_ACCESS_DENIED",
+            message: "A confirmed administrator account is required",
+          });
+        }
+      } else {
+        const isValidPublicUser =
+          user.role === "user" &&
+          ["traveler", "host"].includes(user.account_type);
+
+        if (!isValidPublicUser) {
+          return res.status(403).json({
+            success: false,
+            code: "PUBLIC_ACCESS_DENIED",
+            message: "This account cannot use public authentication",
+          });
+        }
+      }
+
+      req.user = user;
+      req.sessionId = session.id;
+      req.authType = expectedAuthType;
+
+      return next();
+    } catch (error) {
+      console.error("Authentication middleware error:", error);
+
       return res.status(401).json({
         success: false,
-        message: "Session has expired or been revoked. Please log in again.",
+        code: "AUTHENTICATION_FAILED",
+        message: "Not authorized to access this route",
       });
     }
-
-    // Load the current account from the database.
-    const user = await prisma.user.findUnique({
-      where: {
-        id: decoded.id,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        account_type: true,
-        status: true,
-        auth_version: true,
-        deleted_at: true,
-        email_verified_at: true,
-      },
-    });
-
-    if (!user || user.deleted_at) {
-      return res.status(401).json({
-        success: false,
-        message: "Account not found or deleted",
-      });
-    }
-
-    // Reject tokens issued before the user's auth_version changed.
-    // The token generator must include authVersion.
-    if (
-      typeof decoded.authVersion !== "number" ||
-      decoded.authVersion !== user.auth_version
-    ) {
-      return res.status(401).json({
-        success: false,
-        message: "Your session is no longer valid. Please log in again.",
-      });
-    }
-
-    if (user.status === "suspended" || user.status === "banned") {
-      return res.status(403).json({
-        success: false,
-        message: `Account is ${user.status}`,
-      });
-    }
-
-    // Attach the authenticated user.
-    req.user = user;
-    req.sessionId = session.id;
-
-    next();
-  } catch (error) {
-    console.error("Authentication middleware error:", error);
-
-    return res.status(401).json({
-      success: false,
-      message: "Not authorized to access this route",
-    });
-  }
+  };
 };
+
+// ============================================================
+// PUBLIC AND ADMIN PROTECTION
+// ============================================================
+
+const protectPublic = protectWithAuthType("public");
+const protectAdmin = protectWithAuthType("admin");
+
+// Backward compatibility: existing public routes using protect
+// continue to require public authentication.
+const protect = protectPublic;
 
 // ============================================================
 // AUTHORIZE BY ROLE
@@ -146,7 +207,7 @@ const authorize = (...roles) => {
       });
     }
 
-    next();
+    return next();
   };
 };
 
@@ -162,7 +223,7 @@ const isVerified = (req, res, next) => {
     });
   }
 
-  next();
+  return next();
 };
 
 // ============================================================
@@ -170,14 +231,17 @@ const isVerified = (req, res, next) => {
 // ============================================================
 
 const isHost = (req, res, next) => {
-  if (req.user?.account_type !== "host") {
+  if (
+    req.user?.account_type !== "host" ||
+    req.user?.role !== "user"
+  ) {
     return res.status(403).json({
       success: false,
       message: "Host account required for this action",
     });
   }
 
-  next();
+  return next();
 };
 
 // ============================================================
@@ -212,10 +276,7 @@ const checkOwnership = (model) => {
       }
 
       const ownerId = resource.user_id || resource.host_id;
-
-      const isAdmin =
-        req.user.role === "admin" &&
-        ["admin", "super_admin"].includes(req.user.account_type);
+      const isAdmin = ["admin", "super_admin"].includes(req.user.role);
 
       if (ownerId !== req.user.id && !isAdmin) {
         return res.status(403).json({
@@ -224,15 +285,17 @@ const checkOwnership = (model) => {
         });
       }
 
-      next();
+      return next();
     } catch (error) {
-      next(error);
+      return next(error);
     }
   };
 };
 
 module.exports = {
   protect,
+  protectPublic,
+  protectAdmin,
   authorize,
   isVerified,
   isHost,

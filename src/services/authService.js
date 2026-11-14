@@ -1,4 +1,3 @@
-
 // src/services/authService.js
 
 const bcrypt = require("bcryptjs");
@@ -20,18 +19,15 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 const ACCESS_TOKEN_EXPIRES_IN = process.env.JWT_EXPIRE || "7d";
-const REFRESH_TOKEN_EXPIRES_IN =
-  process.env.JWT_REFRESH_EXPIRE || "30d";
+const REFRESH_TOKEN_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRE || "30d";
 
 if (!process.env.JWT_SECRET || !process.env.JWT_REFRESH_SECRET) {
-  throw new Error(
-    "JWT_SECRET and JWT_REFRESH_SECRET must both be configured."
-  );
+  throw new Error("JWT_SECRET and JWT_REFRESH_SECRET must both be configured.");
 }
 
 if (process.env.JWT_SECRET === process.env.JWT_REFRESH_SECRET) {
   throw new Error(
-    "JWT_SECRET and JWT_REFRESH_SECRET must use different values."
+    "JWT_SECRET and JWT_REFRESH_SECRET must use different values.",
   );
 }
 
@@ -39,11 +35,7 @@ if (process.env.JWT_SECRET === process.env.JWT_REFRESH_SECRET) {
 const PUBLIC_ACCOUNT_TYPES = ["traveler", "host"];
 
 // Only these fields can be changed through the public profile API.
-const SELF_EDITABLE_USER_FIELDS = [
-  "name",
-  "phone_number",
-  "profile_image",
-];
+const SELF_EDITABLE_USER_FIELDS = ["name", "phone_number", "profile_image"];
 
 // Relations needed for Host verification information.
 const AUTH_USER_INCLUDE = {
@@ -88,7 +80,9 @@ function removePasswordHash(user) {
 }
 
 function normalizeEmail(email) {
-  return String(email || "").trim().toLowerCase();
+  return String(email || "")
+    .trim()
+    .toLowerCase();
 }
 
 function getDeviceData(deviceInfo = {}) {
@@ -118,7 +112,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.VALIDATION_FAILED,
         "Password is required",
-        400
+        400,
       );
     }
 
@@ -143,11 +137,20 @@ class AuthService {
   // GENERATE JWT TOKENS
   // ==========================================================
 
-  generateTokens(userId, sessionId, authVersion = 0) {
+  generateTokens(userId, sessionId, authVersion = 0, authType = "public") {
+    if (!["public", "admin"].includes(authType)) {
+      throw createAppError(
+        ErrorCodes.INVALID_INPUT,
+        "Invalid authentication type",
+        400,
+      );
+    }
+
     const payload = {
       id: userId,
       sessionId,
       authVersion,
+      authType,
     };
 
     const accessToken = jwt.sign(
@@ -158,7 +161,7 @@ class AuthService {
       process.env.JWT_SECRET,
       {
         expiresIn: ACCESS_TOKEN_EXPIRES_IN,
-      }
+      },
     );
 
     const refreshToken = jwt.sign(
@@ -169,7 +172,7 @@ class AuthService {
       process.env.JWT_REFRESH_SECRET,
       {
         expiresIn: REFRESH_TOKEN_EXPIRES_IN,
-      }
+      },
     );
 
     return {
@@ -210,10 +213,7 @@ class AuthService {
   // ==========================================================
 
   hashToken(token) {
-    return crypto
-      .createHash("sha256")
-      .update(token)
-      .digest("hex");
+    return crypto.createHash("sha256").update(token).digest("hex");
   }
 
   // ==========================================================
@@ -224,10 +224,7 @@ class AuthService {
     try {
       await redisHelpers.del(`user:${userId}`);
     } catch (error) {
-      console.error(
-        "Failed to clear user cache:",
-        error.message
-      );
+      console.error("Failed to clear user cache:", error.message);
     }
   }
 
@@ -235,17 +232,183 @@ class AuthService {
     try {
       const safeUser = removePasswordHash(user);
 
-      await redisHelpers.set(
-        `user:${userId}`,
-        safeUser,
-        3600
-      );
+      await redisHelpers.set(`user:${userId}`, safeUser, 3600);
     } catch (error) {
-      console.error(
-        "Failed to cache user:",
-        error.message
+      console.error("Failed to cache user:", error.message);
+    }
+  }
+
+  // ==========================================================
+  // ADMIN LOGIN
+  // ==========================================================
+
+  async loginAdmin(email, password, deviceInfo = {}) {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!normalizedEmail || typeof password !== "string" || !password) {
+      throw createAppError(
+        ErrorCodes.INVALID_CREDENTIALS,
+        "Invalid email or password",
+        401,
       );
     }
+
+    const user = await prisma.user.findUnique({
+      where: {
+        email: normalizedEmail,
+      },
+    });
+
+    // Use the same generic error for all credential failures.
+    if (
+      !user ||
+      user.deleted_at ||
+      !["admin", "super_admin"].includes(user.role) ||
+      user.account_type !== user.role ||
+      !user.password_hash
+    ) {
+      throw createAppError(
+        ErrorCodes.INVALID_CREDENTIALS,
+        "Invalid email or password",
+        401,
+      );
+    }
+
+    if (user.status !== "confirmed") {
+      throw createAppError(
+        ErrorCodes.FORBIDDEN,
+        "Administrator account is not active",
+        403,
+      );
+    }
+
+    const passwordMatches = await this.comparePassword(
+      password,
+      user.password_hash,
+    );
+
+    if (!passwordMatches) {
+      throw createAppError(
+        ErrorCodes.INVALID_CREDENTIALS,
+        "Invalid email or password",
+        401,
+      );
+    }
+
+    const now = new Date();
+    const deviceData = getDeviceData(deviceInfo);
+
+    const result = await prisma.$transaction(async (tx) => {
+      // Revoke previous sessions for this administrator.
+      await tx.userSession.updateMany({
+        where: {
+          user_id: user.id,
+          is_active: true,
+        },
+        data: {
+          is_active: false,
+          logged_out_at: now,
+          refresh_token_hash: null,
+        },
+      });
+
+      const session = await tx.userSession.create({
+        data: {
+          user_id: user.id,
+          device: deviceData.device,
+          browser: deviceData.browser,
+          os: deviceData.os,
+          ip_address: deviceData.ip_address,
+          user_agent: deviceData.user_agent,
+          is_active: true,
+          logged_in_at: now,
+        },
+      });
+
+      await tx.user.update({
+        where: {
+          id: user.id,
+        },
+        data: {
+          last_login_at: now,
+          last_active: now,
+        },
+      });
+
+      return session;
+    });
+
+    const tokens = this.generateTokens(
+      user.id,
+      result.id,
+      user.auth_version,
+      "admin",
+    );
+
+    try {
+      await prisma.userSession.update({
+        where: {
+          id: result.id,
+        },
+        data: {
+          refresh_token_hash: this.hashToken(tokens.refreshToken),
+        },
+      });
+    } catch (error) {
+      await prisma.userSession.updateMany({
+        where: {
+          id: result.id,
+          user_id: user.id,
+        },
+        data: {
+          is_active: false,
+          logged_out_at: new Date(),
+          refresh_token_hash: null,
+        },
+      });
+
+      throw createAppError(
+        ErrorCodes.INTERNAL_ERROR,
+        "Failed to create administrator session",
+        500,
+      );
+    }
+
+    try {
+      await prisma.userEvent.create({
+        data: {
+          user_id: user.id,
+          event_type: "admin_login",
+          metadata: {
+            role: user.role,
+            ip: deviceData.ip_address,
+            device: deviceData.device,
+            browser: deviceData.browser,
+            os: deviceData.os,
+          },
+        },
+      });
+    } catch (error) {
+      console.error("Failed to record administrator login:", error.message);
+    }
+
+    const safeUser = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone_number: user.phone_number,
+      profile_image: user.profile_image,
+      role: user.role,
+      account_type: user.account_type,
+      status: user.status,
+      email_verified_at: user.email_verified_at,
+      created_at: user.created_at,
+    };
+
+    return {
+      user: safeUser,
+      tokens,
+    };
   }
 
   // ==========================================================
@@ -270,11 +433,7 @@ class AuthService {
   // - Admin and Super Admin cannot use this endpoint.
   // ==========================================================
 
-  async loginWithGoogle(
-    idToken,
-    authRequest = {},
-    deviceInfo = {}
-  ) {
+  async loginWithGoogle(idToken, authRequest = {}, deviceInfo = {}) {
     // --------------------------------------------------------
     // 1. Validate configuration and request
     // --------------------------------------------------------
@@ -283,7 +442,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.INTERNAL_ERROR,
         "Google authentication is not configured",
-        500
+        500,
       );
     }
 
@@ -291,7 +450,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.VALIDATION_FAILED,
         "Google ID token is required",
-        400
+        400,
       );
     }
 
@@ -303,7 +462,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.VALIDATION_FAILED,
         "Invalid authentication request",
-        400
+        400,
       );
     }
 
@@ -313,18 +472,15 @@ class AuthService {
       throw createAppError(
         ErrorCodes.VALIDATION_FAILED,
         "Invalid authentication intent",
-        400
+        400,
       );
     }
 
-    if (
-      intent === "signup" &&
-      !PUBLIC_ACCOUNT_TYPES.includes(accountType)
-    ) {
+    if (intent === "signup" && !PUBLIC_ACCOUNT_TYPES.includes(accountType)) {
       throw createAppError(
         ErrorCodes.VALIDATION_FAILED,
         "Invalid account type. Choose traveler or host.",
-        400
+        400,
       );
     }
 
@@ -332,7 +488,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.VALIDATION_FAILED,
         "Account type must not be provided during login",
-        400
+        400,
       );
     }
 
@@ -353,7 +509,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.INVALID_CREDENTIALS,
         "Invalid Google authentication token",
-        401
+        401,
       );
     }
 
@@ -366,7 +522,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.INVALID_CREDENTIALS,
         "A verified Google email address is required",
-        401
+        401,
       );
     }
 
@@ -399,7 +555,7 @@ class AuthService {
         throw createAppError(
           ErrorCodes.VALIDATION_FAILED,
           "This Google account is already registered. Please log in instead.",
-          409
+          409,
         );
       }
 
@@ -413,23 +569,20 @@ class AuthService {
         throw createAppError(
           ErrorCodes.VALIDATION_FAILED,
           "An account with this email already exists. Please log in instead.",
-          409
+          409,
         );
       }
 
       try {
         user = await prisma.user.create({
           data: {
-            name:
-              googlePayload.name ||
-              email.split("@")[0],
+            name: googlePayload.name || email.split("@")[0],
 
             email,
 
             google_id: googleId,
 
-            profile_image:
-              googlePayload.picture || null,
+            profile_image: googlePayload.picture || null,
 
             email_verified_at: now,
 
@@ -442,10 +595,7 @@ class AuthService {
             role: "user",
 
             // Hosts must be allowed to log in while pending.
-            status:
-              accountType === "host"
-                ? "pending"
-                : "active",
+            status: accountType === "host" ? "pending" : "active",
 
             last_login_at: now,
 
@@ -485,7 +635,7 @@ class AuthService {
           throw createAppError(
             ErrorCodes.VALIDATION_FAILED,
             "An account with this Google account or email already exists. Please log in instead.",
-            409
+            409,
           );
         }
 
@@ -517,7 +667,7 @@ class AuthService {
           throw createAppError(
             ErrorCodes.INVALID_CREDENTIALS,
             "No account was found for this Google account. Please sign up first.",
-            404
+            404,
           );
         }
 
@@ -525,33 +675,27 @@ class AuthService {
           throw createAppError(
             ErrorCodes.FORBIDDEN,
             "This account is no longer available",
-            403
+            403,
           );
         }
 
         // Never link an Admin or Super Admin through public Google.
         if (
-          ["admin", "super_admin"].includes(
-            existingEmailUser.account_type
-          ) ||
+          ["admin", "super_admin"].includes(existingEmailUser.account_type) ||
           existingEmailUser.role !== "user"
         ) {
           throw createAppError(
             ErrorCodes.FORBIDDEN,
             "Please use the administrator login",
-            403
+            403,
           );
         }
 
-        if (
-          !PUBLIC_ACCOUNT_TYPES.includes(
-            existingEmailUser.account_type
-          )
-        ) {
+        if (!PUBLIC_ACCOUNT_TYPES.includes(existingEmailUser.account_type)) {
           throw createAppError(
             ErrorCodes.FORBIDDEN,
             "This account cannot use public Google authentication",
-            403
+            403,
           );
         }
 
@@ -562,7 +706,7 @@ class AuthService {
           throw createAppError(
             ErrorCodes.INVALID_CREDENTIALS,
             "This email is already linked to another Google account",
-            409
+            409,
           );
         }
 
@@ -590,8 +734,7 @@ class AuthService {
             data: {
               google_id: googleId,
 
-              email_verified_at:
-                existingEmailUser.email_verified_at || now,
+              email_verified_at: existingEmailUser.email_verified_at || now,
 
               profile_image:
                 existingEmailUser.profile_image ||
@@ -604,7 +747,7 @@ class AuthService {
             throw createAppError(
               ErrorCodes.INVALID_CREDENTIALS,
               "Unable to link this Google account. Please try logging in again.",
-              409
+              409,
             );
           }
         }
@@ -626,7 +769,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.FORBIDDEN,
         "This account is no longer available",
-        403
+        403,
       );
     }
 
@@ -639,7 +782,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.FORBIDDEN,
         "Please use the administrator login",
-        403
+        403,
       );
     }
 
@@ -647,18 +790,15 @@ class AuthService {
       throw createAppError(
         ErrorCodes.FORBIDDEN,
         "This account cannot use public Google authentication",
-        403
+        403,
       );
     }
 
-    if (
-      user.status === "suspended" ||
-      user.status === "banned"
-    ) {
+    if (user.status === "suspended" || user.status === "banned") {
       throw createAppError(
         ErrorCodes.FORBIDDEN,
         `Your account is ${user.status}`,
-        403
+        403,
       );
     }
 
@@ -677,17 +817,11 @@ class AuthService {
     if (user.account_type === "host") {
       const documents = user.id_documents || [];
 
-      const hasApprovedId = documents.some(
-        (doc) => doc.status === "approved"
-      );
+      const hasApprovedId = documents.some((doc) => doc.status === "approved");
 
-      const hasPendingId = documents.some(
-        (doc) => doc.status === "pending"
-      );
+      const hasPendingId = documents.some((doc) => doc.status === "pending");
 
-      const hasRejectedId = documents.some(
-        (doc) => doc.status === "rejected"
-      );
+      const hasRejectedId = documents.some((doc) => doc.status === "rejected");
 
       if (user.status !== "confirmed") {
         isHostApproved = false;
@@ -703,11 +837,9 @@ class AuthService {
           loginMessage =
             "Your ID/Passport was rejected. Please upload a new document.";
         } else if (hasPendingId && !hasApprovedId) {
-          loginMessage =
-            "Your ID/Passport is pending admin verification.";
+          loginMessage = "Your ID/Passport is pending admin verification.";
         } else {
-          loginMessage =
-            "Your host account is pending admin approval.";
+          loginMessage = "Your host account is pending admin approval.";
         }
       }
     }
@@ -780,11 +912,7 @@ class AuthService {
     // Middleware must compare it against the database value.
     // ========================================================
 
-    const tokens = this.generateTokens(
-      user.id,
-      session.id,
-      user.auth_version
-    );
+    const tokens = this.generateTokens(user.id, session.id, user.auth_version);
 
     // ========================================================
     // 11. Save refresh token hash
@@ -797,9 +925,7 @@ class AuthService {
         },
 
         data: {
-          refresh_token_hash: this.hashToken(
-            tokens.refreshToken
-          ),
+          refresh_token_hash: this.hashToken(tokens.refreshToken),
         },
       });
     } catch (error) {
@@ -819,7 +945,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.INTERNAL_ERROR,
         "Failed to create authenticated session",
-        500
+        500,
       );
     }
 
@@ -845,10 +971,7 @@ class AuthService {
         },
       });
     } catch (error) {
-      console.error(
-        "Failed to log Google authentication:",
-        error.message
-      );
+      console.error("Failed to log Google authentication:", error.message);
     }
 
     // ========================================================
@@ -868,8 +991,7 @@ class AuthService {
     };
 
     if (user.account_type === "host") {
-      enrichedUser.verificationStatus =
-        buildVerificationStatus(user);
+      enrichedUser.verificationStatus = buildVerificationStatus(user);
     }
 
     // Cache the complete safe user, not a reduced user object.
@@ -940,28 +1062,42 @@ class AuthService {
   // - Rotates refresh tokens.
   // ==========================================================
 
+  // ==========================================================
+  // PUBLIC REFRESH
+  // ==========================================================
+
   async refreshToken(refreshToken) {
-    const decoded = this.verifyToken(
-      refreshToken,
-      "refresh"
-    );
+    return this.refreshTokenForScope(refreshToken, "public");
+  }
+
+  // ==========================================================
+  // ADMIN REFRESH
+  // ==========================================================
+
+  async refreshAdminToken(refreshToken) {
+    return this.refreshTokenForScope(refreshToken, "admin");
+  }
+
+  // ==========================================================
+  // SHARED REFRESH IMPLEMENTATION
+  // ==========================================================
+
+  async refreshTokenForScope(refreshToken, expectedAuthType) {
+    const decoded = this.verifyToken(refreshToken, "refresh");
 
     if (
       !decoded ||
       !decoded.id ||
       !decoded.sessionId ||
-      typeof decoded.authVersion !== "number"
+      typeof decoded.authVersion !== "number" ||
+      decoded.authType !== expectedAuthType
     ) {
       throw createAppError(
         ErrorCodes.TOKEN_INVALID,
         "Invalid refresh token",
-        401
+        401,
       );
     }
-
-    // --------------------------------------------------------
-    // 1. Find the session
-    // --------------------------------------------------------
 
     const session = await prisma.userSession.findUnique({
       where: {
@@ -973,21 +1109,14 @@ class AuthService {
       !session ||
       !session.is_active ||
       session.user_id !== decoded.id ||
-      (
-        session.expires_at &&
-        session.expires_at <= new Date()
-      )
+      (session.expires_at && session.expires_at <= new Date())
     ) {
       throw createAppError(
         ErrorCodes.TOKEN_INVALID,
         "Session has been revoked or expired",
-        401
+        401,
       );
     }
-
-    // --------------------------------------------------------
-    // 2. Find the user
-    // --------------------------------------------------------
 
     const user = await prisma.user.findUnique({
       where: {
@@ -999,51 +1128,50 @@ class AuthService {
       throw createAppError(
         ErrorCodes.USER_NOT_FOUND,
         "User not found or deleted",
-        401
+        401,
       );
     }
-
-    // --------------------------------------------------------
-    // 3. Check auth_version
-    // --------------------------------------------------------
 
     if (decoded.authVersion !== user.auth_version) {
       throw createAppError(
         ErrorCodes.TOKEN_INVALID,
         "Session is no longer valid. Please log in again.",
-        401
+        401,
       );
     }
 
-    // --------------------------------------------------------
-    // 4. Check account status
-    // --------------------------------------------------------
-
-    if (
-      user.status === "suspended" ||
-      user.status === "banned"
-    ) {
+    if (user.status === "suspended" || user.status === "banned") {
       throw createAppError(
         ErrorCodes.FORBIDDEN,
         `Account is ${user.status}`,
-        403
+        403,
       );
     }
 
-    if (
-      !PUBLIC_ACCOUNT_TYPES.includes(user.account_type) ||
-      user.role !== "user"
-    ) {
-      throw createAppError(
-        ErrorCodes.FORBIDDEN,
-        "This account cannot use public authentication",
-        403
-      );
+    if (expectedAuthType === "admin") {
+      if (
+        !["admin", "super_admin"].includes(user.role) ||
+        user.account_type !== user.role ||
+        user.status !== "confirmed"
+      ) {
+        throw createAppError(
+          ErrorCodes.FORBIDDEN,
+          "Administrator access is no longer available",
+          403,
+        );
+      }
+    } else {
+      if (
+        !PUBLIC_ACCOUNT_TYPES.includes(user.account_type) ||
+        user.role !== "user"
+      ) {
+        throw createAppError(
+          ErrorCodes.FORBIDDEN,
+          "This account cannot use public authentication",
+          403,
+        );
+      }
     }
-
-    // --------------------------------------------------------
-    // 5. Check refresh token hash
-    // --------------------------------------------------------
 
     const oldTokenHash = this.hashToken(refreshToken);
 
@@ -1051,14 +1179,16 @@ class AuthService {
       !session.refresh_token_hash ||
       session.refresh_token_hash !== oldTokenHash
     ) {
-      // A previously rotated refresh token was reused.
+      // Do not revoke the session merely because a token was
+      // presented to the wrong authentication endpoint.
+      // At this point the scope matches, so a hash mismatch
+      // indicates token reuse or an invalid rotation.
       await prisma.userSession.updateMany({
         where: {
           id: session.id,
           user_id: user.id,
           is_active: true,
         },
-
         data: {
           is_active: false,
           logged_out_at: new Date(),
@@ -1071,27 +1201,16 @@ class AuthService {
       throw createAppError(
         ErrorCodes.TOKEN_INVALID,
         "Refresh token reuse detected. Session revoked.",
-        401
+        401,
       );
     }
-
-    // --------------------------------------------------------
-    // 6. Generate new tokens
-    // --------------------------------------------------------
 
     const newTokens = this.generateTokens(
       user.id,
       session.id,
-      user.auth_version
+      user.auth_version,
+      expectedAuthType,
     );
-
-    // --------------------------------------------------------
-    // 7. Atomically rotate refresh token
-    //
-    // updateMany with the old hash prevents two concurrent
-    // refresh requests from successfully rotating the same
-    // refresh token.
-    // --------------------------------------------------------
 
     const rotationResult = await prisma.userSession.updateMany({
       where: {
@@ -1100,33 +1219,16 @@ class AuthService {
         is_active: true,
         refresh_token_hash: oldTokenHash,
       },
-
       data: {
-        refresh_token_hash: this.hashToken(
-          newTokens.refreshToken
-        ),
+        refresh_token_hash: this.hashToken(newTokens.refreshToken),
       },
     });
 
     if (rotationResult.count !== 1) {
-      await prisma.userSession.updateMany({
-        where: {
-          id: session.id,
-          user_id: user.id,
-          is_active: true,
-        },
-
-        data: {
-          is_active: false,
-          logged_out_at: new Date(),
-          refresh_token_hash: null,
-        },
-      });
-
       throw createAppError(
         ErrorCodes.TOKEN_INVALID,
         "Refresh token is no longer valid. Please log in again.",
-        401
+        401,
       );
     }
 
@@ -1176,11 +1278,7 @@ class AuthService {
     });
 
     if (!user) {
-      throw createAppError(
-        ErrorCodes.USER_NOT_FOUND,
-        "User not found",
-        404
-      );
+      throw createAppError(ErrorCodes.USER_NOT_FOUND, "User not found", 404);
     }
 
     const safeUser = removePasswordHash(user);
@@ -1216,7 +1314,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.VALIDATION_FAILED,
         "Invalid update data",
-        400
+        400,
       );
     }
 
@@ -1230,14 +1328,11 @@ class AuthService {
 
     // Validate name.
     if (safeData.name !== undefined) {
-      if (
-        typeof safeData.name !== "string" ||
-        !safeData.name.trim()
-      ) {
+      if (typeof safeData.name !== "string" || !safeData.name.trim()) {
         throw createAppError(
           ErrorCodes.VALIDATION_FAILED,
           "Name must be a non-empty string",
-          400
+          400,
         );
       }
 
@@ -1253,13 +1348,12 @@ class AuthService {
         throw createAppError(
           ErrorCodes.VALIDATION_FAILED,
           "Invalid phone number",
-          400
+          400,
         );
       }
 
       if (typeof safeData.phone_number === "string") {
-        safeData.phone_number =
-          safeData.phone_number.trim() || null;
+        safeData.phone_number = safeData.phone_number.trim() || null;
       }
     }
 
@@ -1272,7 +1366,7 @@ class AuthService {
         throw createAppError(
           ErrorCodes.VALIDATION_FAILED,
           "Invalid profile image",
-          400
+          400,
         );
       }
     }
@@ -1281,7 +1375,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.VALIDATION_FAILED,
         "No valid updatable fields provided",
-        400
+        400,
       );
     }
 
@@ -1309,7 +1403,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.VALIDATION_FAILED,
         "Document URL is required",
-        400
+        400,
       );
     }
 
@@ -1321,7 +1415,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.VALIDATION_FAILED,
         "Invalid document URL",
-        400
+        400,
       );
     }
 
@@ -1329,7 +1423,7 @@ class AuthService {
       throw createAppError(
         ErrorCodes.VALIDATION_FAILED,
         "Document URL must use HTTP or HTTPS",
-        400
+        400,
       );
     }
 
@@ -1347,21 +1441,14 @@ class AuthService {
     });
 
     if (!user || user.deleted_at) {
-      throw createAppError(
-        ErrorCodes.USER_NOT_FOUND,
-        "User not found",
-        404
-      );
+      throw createAppError(ErrorCodes.USER_NOT_FOUND, "User not found", 404);
     }
 
-    if (
-      user.account_type !== "host" ||
-      user.role !== "user"
-    ) {
+    if (user.account_type !== "host" || user.role !== "user") {
       throw createAppError(
         ErrorCodes.FORBIDDEN,
         "Only Host accounts can upload identity documents",
-        403
+        403,
       );
     }
 
@@ -1394,15 +1481,11 @@ class AuthService {
   // ==========================================================
 
   async createHostProfile(userId, hostData = {}) {
-    if (
-      !hostData ||
-      typeof hostData !== "object" ||
-      Array.isArray(hostData)
-    ) {
+    if (!hostData || typeof hostData !== "object" || Array.isArray(hostData)) {
       throw createAppError(
         ErrorCodes.VALIDATION_FAILED,
         "Invalid host profile data",
-        400
+        400,
       );
     }
 
@@ -1413,29 +1496,22 @@ class AuthService {
     });
 
     if (!user || user.deleted_at) {
-      throw createAppError(
-        ErrorCodes.USER_NOT_FOUND,
-        "User not found",
-        404
-      );
+      throw createAppError(ErrorCodes.USER_NOT_FOUND, "User not found", 404);
     }
 
     if (user.account_type === "host") {
       throw createAppError(
         ErrorCodes.VALIDATION_FAILED,
         "User is already a host",
-        400
+        400,
       );
     }
 
-    if (
-      user.account_type !== "traveler" ||
-      user.role !== "user"
-    ) {
+    if (user.account_type !== "traveler" || user.role !== "user") {
       throw createAppError(
         ErrorCodes.FORBIDDEN,
         "This account cannot become a host",
-        403
+        403,
       );
     }
 
@@ -1457,9 +1533,7 @@ class AuthService {
       ...safeHostData
     } = hostData;
 
-    const currentHostDetails = safeJsonObject(
-      user.host_details
-    );
+    const currentHostDetails = safeJsonObject(user.host_details);
 
     const updatedHostDetails = {
       ...currentHostDetails,
@@ -1515,7 +1589,7 @@ class AuthService {
         throw createAppError(
           ErrorCodes.VALIDATION_FAILED,
           "Unable to convert this account into a Host. Please refresh and try again.",
-          409
+          409,
         );
       }
 
