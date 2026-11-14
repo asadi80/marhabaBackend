@@ -1,7 +1,11 @@
+
 // src/services/authService.js
+
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
+const { OAuth2Client } = require("google-auth-library");
+
 const { prisma } = require("../config/database");
 const { redisHelpers } = require("../config/redis");
 const emailService = require("./emailService");
@@ -10,7 +14,9 @@ const { USER_STATUS } = require("../utils/constants");
 const { AppError, ErrorCodes } = require("../utils/errors");
 const { buildVerificationStatus } = require("./verificationFormatter");
 
-// Fail fast if secrets are missing (kept from your file).
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+// Fail fast if secrets are missing.
 if (!process.env.JWT_SECRET || !process.env.JWT_REFRESH_SECRET) {
   throw new Error(
     "JWT_SECRET and JWT_REFRESH_SECRET must both be set (and must be different values).",
@@ -19,9 +25,6 @@ if (!process.env.JWT_SECRET || !process.env.JWT_REFRESH_SECRET) {
 
 const SELF_ASSIGNABLE_ROLES = ["user", "host"];
 
-// Fields a user is allowed to self-edit via PUT /auth/me.
-// Defense-in-depth: the controller also whitelists, but the service
-// must never trust its caller.
 const SELF_EDITABLE_USER_FIELDS = [
   "name",
   "phone_number",
@@ -37,6 +40,7 @@ class AuthService {
   // ============================================================
   // HASH PASSWORD
   // ============================================================
+
   async hashPassword(password) {
     const salt = await bcrypt.genSalt(12);
     return bcrypt.hash(password, salt);
@@ -45,13 +49,16 @@ class AuthService {
   // ============================================================
   // COMPARE PASSWORD
   // ============================================================
+
   async comparePassword(password, hashedPassword) {
+    if (!hashedPassword) return false;
     return bcrypt.compare(password, hashedPassword);
   }
 
   // ============================================================
   // GENERATE JWT TOKENS
   // ============================================================
+
   generateTokens(userId, sessionId) {
     const accessToken = jwt.sign(
       { id: userId, sessionId, type: "access" },
@@ -71,6 +78,7 @@ class AuthService {
   // ============================================================
   // VERIFY TOKEN
   // ============================================================
+
   verifyToken(token, expectedType = "access") {
     const secret =
       expectedType === "refresh"
@@ -79,7 +87,9 @@ class AuthService {
 
     try {
       const decoded = jwt.verify(token, secret);
+
       if (decoded.type !== expectedType) return null;
+
       return decoded;
     } catch {
       return null;
@@ -87,15 +97,384 @@ class AuthService {
   }
 
   // ============================================================
-  // HASH A REFRESH TOKEN FOR STORAGE
+  // HASH REFRESH TOKEN
   // ============================================================
+
   hashToken(token) {
     return crypto.createHash("sha256").update(token).digest("hex");
   }
 
   // ============================================================
-  // REGISTER USER
+  // GOOGLE LOGIN / SIGNUP
+  //
+  // Existing Google account -> Login
+  // Existing email account   -> Link Google and Login
+  // New Google account       -> Create account
   // ============================================================
+
+  async loginWithGoogle(
+    idToken,
+    accountType = "traveler",
+    deviceInfo = {},
+  ) {
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      throw new AppError(
+        ErrorCodes.INTERNAL_ERROR,
+        "Google authentication is not configured",
+        500,
+      );
+    }
+
+    if (!idToken || typeof idToken !== "string") {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        "Google ID token is required",
+        400,
+      );
+    }
+
+    if (!["traveler", "host"].includes(accountType)) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        "Invalid account type",
+        400,
+      );
+    }
+
+    // 1. Verify the Google ID token.
+    let payload;
+
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+
+      payload = ticket.getPayload();
+    } catch (error) {
+      throw new AppError(
+        ErrorCodes.INVALID_CREDENTIALS,
+        "Invalid Google authentication token",
+        401,
+      );
+    }
+
+    if (
+      !payload ||
+      !payload.sub ||
+      !payload.email ||
+      payload.email_verified !== true
+    ) {
+      throw new AppError(
+        ErrorCodes.INVALID_CREDENTIALS,
+        "Google account email is not verified",
+        401,
+      );
+    }
+
+    const googleId = payload.sub;
+    const email = payload.email.trim().toLowerCase();
+    const googleName =
+      payload.name || email.split("@")[0] || "Google User";
+
+    const userInclude = {
+      id_documents: {
+        orderBy: { created_at: "desc" },
+      },
+      host_subscription_payments: {
+        orderBy: { created_at: "desc" },
+      },
+    };
+
+    // 2. Find an existing account linked to this Google ID.
+    let user = await prisma.user.findUnique({
+      where: { google_id: googleId },
+      include: userInclude,
+    });
+
+    let isNewUser = false;
+
+    if (!user) {
+      // 3. If not found, check whether this email already exists.
+      const existingEmailUser = await prisma.user.findUnique({
+        where: { email },
+        include: userInclude,
+      });
+
+      if (existingEmailUser) {
+        // Do not link an email that is already connected
+        // to a different Google identity.
+        if (
+          existingEmailUser.google_id &&
+          existingEmailUser.google_id !== googleId
+        ) {
+          throw new AppError(
+            ErrorCodes.INVALID_CREDENTIALS,
+            "This email is already linked to another Google account",
+            409,
+          );
+        }
+
+        // Link Google to the existing account.
+        // Preserve role, status, account_type, and profile data.
+        user = await prisma.user.update({
+          where: { id: existingEmailUser.id },
+          data: {
+            google_id: googleId,
+            email_verified: true,
+            email_verification_token: null,
+            email_verification_expires: null,
+          },
+          include: userInclude,
+        });
+      } else {
+        // 4. Create a new Google account.
+        user = await prisma.user.create({
+          data: {
+            name: googleName,
+            email,
+            google_id: googleId,
+
+            password_hash: null,
+            phone_number: null,
+
+            account_type: accountType,
+
+            // Never grant host permissions based on signup selection.
+            role: "user",
+
+            status: USER_STATUS.ACTIVE,
+
+            email_verified: true,
+            email_verification_token: null,
+            email_verification_expires: null,
+
+            host_details: {
+              rating: 0,
+              totalListings: 0,
+              verified: false,
+              id_verified: false,
+              id_verified_at: null,
+              id_rejected: false,
+              id_rejection_reason: null,
+              payment_verified: false,
+              payment_verified_at: null,
+              payment_rejected: false,
+              payment_rejection_reason: null,
+              notificationSent: {
+                oneWeek: false,
+                twoDays: false,
+              },
+            },
+
+            user_details: {
+              preferences: {},
+              bookings: [],
+            },
+          },
+          include: userInclude,
+        });
+
+        isNewUser = true;
+      }
+    }
+
+    // 5. Block suspended or banned accounts.
+    if (user.status === "suspended" || user.status === "banned") {
+      throw new AppError(
+        ErrorCodes.FORBIDDEN,
+        `Your account is ${user.status}`,
+        403,
+      );
+    }
+
+    // 6. Existing host verification logic.
+    let loginMessage = "Login successful";
+    let requiresIdUpload = false;
+    let isHostApproved = true;
+
+    if (user.role === "host") {
+      const idDocuments = Array.isArray(user.id_documents)
+        ? user.id_documents
+        : [];
+
+      const hasIdDocuments = idDocuments.length > 0;
+      const hasApprovedId = idDocuments.some(
+        (document) => document.status === "approved",
+      );
+      const hasPendingId = idDocuments.some(
+        (document) => document.status === "pending",
+      );
+      const hasRejectedId = idDocuments.some(
+        (document) => document.status === "rejected",
+      );
+
+      if (user.status === "pending") {
+        if (!hasIdDocuments) {
+          requiresIdUpload = true;
+          isHostApproved = false;
+          loginMessage =
+            "Please upload your ID/Passport to complete verification";
+        } else if (hasRejectedId && !hasApprovedId) {
+          requiresIdUpload = true;
+          isHostApproved = false;
+          loginMessage =
+            "Your ID/Passport was rejected. Please upload a new document.";
+        } else if (hasPendingId && !hasApprovedId) {
+          isHostApproved = false;
+          loginMessage =
+            "Your ID/Passport is pending admin verification.";
+        } else {
+          isHostApproved = false;
+          loginMessage =
+            "Your host account is pending admin approval.";
+        }
+      }
+    }
+
+    // 7. Update last active.
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { last_active: new Date() },
+    });
+
+    // 8. Revoke existing active sessions.
+    await prisma.userSession.updateMany({
+      where: {
+        user_id: user.id,
+        is_active: true,
+      },
+      data: {
+        is_active: false,
+        logged_out_at: new Date(),
+        refresh_token_hash: null,
+      },
+    });
+
+    // 9. Create a new session.
+    let session;
+
+    try {
+      session = await prisma.userSession.create({
+        data: {
+          user_id: user.id,
+          device: deviceInfo.device || "desktop",
+          browser: deviceInfo.browser || "unknown",
+          os: deviceInfo.os || "unknown",
+          ip_address: deviceInfo.ip || null,
+          user_agent: deviceInfo.userAgent || null,
+          is_active: true,
+          logged_in_at: new Date(),
+        },
+      });
+    } catch (error) {
+      console.error("Failed to create Google session:", error.message);
+
+      throw new AppError(
+        ErrorCodes.INTERNAL_ERROR,
+        "Failed to create session",
+        500,
+      );
+    }
+
+    // 10. Generate JWT tokens.
+    const tokens = this.generateTokens(user.id, session.id);
+
+    // 11. Store refresh token hash.
+    try {
+      await prisma.userSession.update({
+        where: { id: session.id },
+        data: {
+          refresh_token_hash: this.hashToken(tokens.refreshToken),
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Failed to store Google refresh token hash:",
+        error.message,
+      );
+
+      // Do not return tokens if their hash could not be stored.
+      await prisma.userSession.update({
+        where: { id: session.id },
+        data: {
+          is_active: false,
+          logged_out_at: new Date(),
+        },
+      });
+
+      throw new AppError(
+        ErrorCodes.INTERNAL_ERROR,
+        "Failed to create authenticated session",
+        500,
+      );
+    }
+
+    // 12. Log signup/login event.
+    try {
+      await prisma.userEvent.create({
+        data: {
+          user_id: user.id,
+          event_type: isNewUser ? "signup" : "login",
+          metadata: {
+            provider: "google",
+            ip: deviceInfo.ip || null,
+            device: deviceInfo.device || "desktop",
+            browser: deviceInfo.browser || "unknown",
+            os: deviceInfo.os || "unknown",
+            userAgent: deviceInfo.userAgent || null,
+          },
+        },
+      });
+    } catch (error) {
+      console.error("Failed to log Google authentication event:", error.message);
+    }
+
+    // 13. Update Redis cache.
+    try {
+      await redisHelpers.set(
+        `user:${user.id}`,
+        {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          status: user.status,
+          account_type: user.account_type,
+          requiresIdUpload,
+          isHostApproved,
+        },
+        3600,
+      );
+    } catch (error) {
+      console.error("Failed to cache Google user:", error.message);
+    }
+
+    // 14. Build response.
+    const { password_hash, ...userWithoutPassword } = user;
+
+    const enrichedUser = {
+      ...userWithoutPassword,
+      requiresIdUpload,
+      isHostApproved,
+      loginMessage,
+    };
+
+    if (user.role === "host") {
+      enrichedUser.verificationStatus = buildVerificationStatus(user);
+    }
+
+    return {
+      user: enrichedUser,
+      tokens,
+      isNewUser,
+    };
+  }
+
+  // ============================================================
+  // REGISTER USER (LEGACY)
+  // ============================================================
+
   async register(userData, deviceInfo = {}) {
     const { name, email, password, phone_number } = userData;
 
@@ -108,14 +487,13 @@ class AuthService {
     }
 
     const requestedRole = String(userData.role || "user").toLowerCase();
+
     const role = SELF_ASSIGNABLE_ROLES.includes(requestedRole)
       ? requestedRole
       : "user";
 
-    // FIX (from your file): you computed `status` from role but then
-    // passed `USER_STATUS.PENDING` verbatim into `prisma.user.create`,
-    // so hosts and users ended up identical. Use the computed value.
-    const status = role === "host" ? USER_STATUS.PENDING : USER_STATUS.ACTIVE;
+    const status =
+      role === "host" ? USER_STATUS.PENDING : USER_STATUS.ACTIVE;
 
     const normalizedEmail = email.trim().toLowerCase();
 
@@ -124,8 +502,6 @@ class AuthService {
     });
 
     if (existingUser) {
-      // Enumeration note: acceptable on register (user is telling us
-      // an email on purpose). Same behavior as before.
       throw new AppError(
         ErrorCodes.VALIDATION_FAILED,
         "User already exists with this email",
@@ -136,7 +512,9 @@ class AuthService {
     const hashedPassword = await this.hashPassword(password);
 
     const verificationToken = generateToken();
-    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const verificationExpires = new Date(
+      Date.now() + 24 * 60 * 60 * 1000,
+    );
 
     const user = await prisma.user.create({
       data: {
@@ -163,7 +541,10 @@ class AuthService {
           payment_verified_at: null,
           payment_rejected: false,
           payment_rejection_reason: null,
-          notificationSent: { oneWeek: false, twoDays: false },
+          notificationSent: {
+            oneWeek: false,
+            twoDays: false,
+          },
         },
 
         user_details: {
@@ -173,9 +554,6 @@ class AuthService {
       },
     });
 
-    // ============================================================
-    // SEND VERIFICATION EMAIL (retry, non-fatal)
-    // ============================================================
     let emailSent = false;
     let emailError = null;
 
@@ -186,28 +564,28 @@ class AuthService {
           name,
           verificationToken,
         );
+
         if (emailResult.success) {
           emailSent = true;
           break;
         }
+
         emailError = emailResult.error;
       } catch (error) {
         emailError = error.message;
       }
+
       if (attempt < 3) {
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     }
 
     if (!emailSent) {
-      // eslint-disable-next-line no-console
-      console.error(`❌ All email attempts failed: ${emailError}`);
+      console.error(`All email attempts failed: ${emailError}`);
     }
 
-    // ============================================================
-    // SESSION + TOKENS
-    // ============================================================
     let session;
+
     try {
       session = await prisma.userSession.create({
         data: {
@@ -222,8 +600,8 @@ class AuthService {
         },
       });
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error("❌ Failed to create session:", error.message);
+      console.error("Failed to create session:", error.message);
+
       throw new AppError(
         ErrorCodes.INTERNAL_ERROR,
         "Failed to create session",
@@ -236,29 +614,35 @@ class AuthService {
     try {
       await prisma.userSession.update({
         where: { id: session.id },
-        data: { refresh_token_hash: this.hashToken(tokens.refreshToken) },
+        data: {
+          refresh_token_hash: this.hashToken(tokens.refreshToken),
+        },
       });
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error("❌ Failed to store refresh token hash:", error.message);
+      console.error("Failed to store refresh token hash:", error.message);
     }
 
     const { password_hash, ...userWithoutPassword } = user;
+
     return { user: userWithoutPassword, tokens };
   }
 
   // ============================================================
-  // LOGIN USER
+  // LOGIN USER (LEGACY)
   // ============================================================
+
   async login(email, password, deviceInfo = {}) {
     const normalizedEmail = email.trim().toLowerCase();
 
     const user = await prisma.user.findUnique({
       where: { email: normalizedEmail },
       include: {
-        id_documents: { orderBy: { created_at: "desc" } },
-        // NEW: needed by buildVerificationStatus for the host response.
-        host_subscription_payments: { orderBy: { created_at: "desc" } },
+        id_documents: {
+          orderBy: { created_at: "desc" },
+        },
+        host_subscription_payments: {
+          orderBy: { created_at: "desc" },
+        },
       },
     });
 
@@ -271,12 +655,13 @@ class AuthService {
 
     if (!user) throw invalidCredentials();
 
-    const isMatch = await this.comparePassword(password, user.password_hash);
+    const isMatch = await this.comparePassword(
+      password,
+      user.password_hash,
+    );
+
     if (!isMatch) throw invalidCredentials();
 
-    // ============================================================
-    // EMAIL VERIFICATION
-    // ============================================================
     if (!user.email_verified) {
       const tokenExpired =
         !user.email_verification_token ||
@@ -284,11 +669,13 @@ class AuthService {
           new Date(user.email_verification_expires) < new Date());
 
       let newToken = user.email_verification_token;
-      let newExpiry = user.email_verification_expires;
 
       if (tokenExpired) {
         newToken = generateToken();
-        newExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+        const newExpiry = new Date(
+          Date.now() + 24 * 60 * 60 * 1000,
+        );
 
         await prisma.user.update({
           where: { id: user.id },
@@ -306,12 +693,9 @@ class AuthService {
           newToken,
         );
       } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error("❌ Failed to send verification email:", error.message);
+        console.error("Failed to send verification email:", error.message);
       }
 
-      // Do NOT leak the token in the error payload (already fixed in
-      // your file; kept).
       throw new AppError(
         ErrorCodes.EMAIL_NOT_VERIFIED,
         "Please verify your email address before logging in",
@@ -328,9 +712,6 @@ class AuthService {
       );
     }
 
-    // ============================================================
-    // HOST LOGIN LOGIC (unchanged behavior)
-    // ============================================================
     let loginMessage = "Login successful";
     let requiresIdUpload = false;
     let isHostApproved = true;
@@ -341,9 +722,15 @@ class AuthService {
         : [];
 
       const hasIdDocuments = idDocuments.length > 0;
-      const hasApprovedId = idDocuments.some((d) => d.status === "approved");
-      const hasPendingId = idDocuments.some((d) => d.status === "pending");
-      const hasRejectedId = idDocuments.some((d) => d.status === "rejected");
+      const hasApprovedId = idDocuments.some(
+        (document) => document.status === "approved",
+      );
+      const hasPendingId = idDocuments.some(
+        (document) => document.status === "pending",
+      );
+      const hasRejectedId = idDocuments.some(
+        (document) => document.status === "rejected",
+      );
 
       if (user.status === "pending") {
         if (!hasIdDocuments) {
@@ -358,10 +745,12 @@ class AuthService {
             "Your ID/Passport was rejected. Please upload a new document.";
         } else if (hasPendingId && !hasApprovedId) {
           isHostApproved = false;
-          loginMessage = "Your ID/Passport is pending admin verification.";
+          loginMessage =
+            "Your ID/Passport is pending admin verification.";
         } else {
           isHostApproved = false;
-          loginMessage = "Your host account is pending admin approval.";
+          loginMessage =
+            "Your host account is pending admin approval.";
         }
       } else if (user.status === "suspended") {
         throw new AppError(
@@ -372,20 +761,24 @@ class AuthService {
       }
     }
 
-    // ============================================================
-    // UPDATE LAST ACTIVE / RESET SESSIONS / CREATE SESSION
-    // ============================================================
     await prisma.user.update({
       where: { id: user.id },
       data: { last_active: new Date() },
     });
 
     await prisma.userSession.updateMany({
-      where: { user_id: user.id, is_active: true },
-      data: { is_active: false, logged_out_at: new Date() },
+      where: {
+        user_id: user.id,
+        is_active: true,
+      },
+      data: {
+        is_active: false,
+        logged_out_at: new Date(),
+      },
     });
 
     let session;
+
     try {
       session = await prisma.userSession.create({
         data: {
@@ -400,8 +793,8 @@ class AuthService {
         },
       });
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error("❌ Failed to create session:", error.message);
+      console.error("Failed to create session:", error.message);
+
       throw new AppError(
         ErrorCodes.INTERNAL_ERROR,
         "Failed to create session",
@@ -414,16 +807,14 @@ class AuthService {
     try {
       await prisma.userSession.update({
         where: { id: session.id },
-        data: { refresh_token_hash: this.hashToken(tokens.refreshToken) },
+        data: {
+          refresh_token_hash: this.hashToken(tokens.refreshToken),
+        },
       });
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error("❌ Failed to store refresh token hash:", error.message);
+      console.error("Failed to store refresh token hash:", error.message);
     }
 
-    // ============================================================
-    // LOG LOGIN EVENT (non-fatal)
-    // ============================================================
     try {
       await prisma.userEvent.create({
         data: {
@@ -439,13 +830,9 @@ class AuthService {
         },
       });
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error("❌ Failed to log event:", error.message);
+      console.error("Failed to log event:", error.message);
     }
 
-    // ============================================================
-    // CACHE USER (non-fatal)
-    // ============================================================
     try {
       await redisHelpers.set(
         `user:${user.id}`,
@@ -461,17 +848,9 @@ class AuthService {
         3600,
       );
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error("❌ Failed to cache user:", error.message);
+      console.error("Failed to cache user:", error.message);
     }
 
-    // ============================================================
-    // RESPONSE
-    //
-    // `verificationStatus` is attached here using the SAME formatter
-    // as the standalone /host-verification-status endpoint, so both
-    // endpoints stay in sync forever.
-    // ============================================================
     const { password_hash, ...userWithoutPassword } = user;
 
     const enriched = {
@@ -491,6 +870,7 @@ class AuthService {
   // ============================================================
   // LOGOUT
   // ============================================================
+
   async logout(userId, sessionId = null) {
     if (sessionId) {
       await prisma.userSession.update({
@@ -503,7 +883,10 @@ class AuthService {
       });
     } else {
       await prisma.userSession.updateMany({
-        where: { user_id: userId, is_active: true },
+        where: {
+          user_id: userId,
+          is_active: true,
+        },
         data: {
           is_active: false,
           logged_out_at: new Date(),
@@ -518,8 +901,10 @@ class AuthService {
   // ============================================================
   // REFRESH TOKEN
   // ============================================================
+
   async refreshToken(refreshToken) {
     const decoded = this.verifyToken(refreshToken, "refresh");
+
     if (!decoded) {
       throw new AppError(
         ErrorCodes.TOKEN_INVALID,
@@ -532,7 +917,11 @@ class AuthService {
       where: { id: decoded.sessionId },
     });
 
-    if (!session || !session.is_active || session.user_id !== decoded.id) {
+    if (
+      !session ||
+      !session.is_active ||
+      session.user_id !== decoded.id
+    ) {
       throw new AppError(
         ErrorCodes.TOKEN_INVALID,
         "Session has been revoked",
@@ -543,8 +932,13 @@ class AuthService {
     if (session.refresh_token_hash !== this.hashToken(refreshToken)) {
       await prisma.userSession.update({
         where: { id: session.id },
-        data: { is_active: false, logged_out_at: new Date() },
+        data: {
+          is_active: false,
+          logged_out_at: new Date(),
+          refresh_token_hash: null,
+        },
       });
+
       throw new AppError(
         ErrorCodes.TOKEN_INVALID,
         "Refresh token reuse detected — session revoked",
@@ -552,7 +946,10 @@ class AuthService {
       );
     }
 
-    const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+    });
+
     if (!user) {
       throw new AppError(ErrorCodes.USER_NOT_FOUND, "User not found", 404);
     }
@@ -566,9 +963,12 @@ class AuthService {
     }
 
     const newTokens = this.generateTokens(user.id, session.id);
+
     await prisma.userSession.update({
       where: { id: session.id },
-      data: { refresh_token_hash: this.hashToken(newTokens.refreshToken) },
+      data: {
+        refresh_token_hash: this.hashToken(newTokens.refreshToken),
+      },
     });
 
     return newTokens;
@@ -577,9 +977,13 @@ class AuthService {
   // ============================================================
   // VERIFY EMAIL
   // ============================================================
+
   async verifyEmail(token) {
     if (!token) {
-      return { error: "invalid-token", message: "No verification token provided" };
+      return {
+        error: "invalid-token",
+        message: "No verification token provided",
+      };
     }
 
     const user = await prisma.user.findFirst({
@@ -587,7 +991,10 @@ class AuthService {
     });
 
     if (!user) {
-      return { error: "invalid-token", message: "Invalid verification token" };
+      return {
+        error: "invalid-token",
+        message: "Invalid verification token",
+      };
     }
 
     if (
@@ -611,6 +1018,7 @@ class AuthService {
     }
 
     let newStatus = user.status;
+
     if (user.role === "user") {
       newStatus = USER_STATUS.ACTIVE;
     }
@@ -632,12 +1040,14 @@ class AuthService {
         data: {
           user_id: user.id,
           event_type: "email_verified",
-          metadata: { timestamp: new Date().toISOString(), token_used: true },
+          metadata: {
+            timestamp: new Date().toISOString(),
+            token_used: true,
+          },
         },
       });
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error("❌ Failed to log email verification:", error.message);
+      console.error("Failed to log email verification:", error.message);
     }
 
     const { password_hash, ...userWithoutPassword } = updatedUser;
@@ -653,8 +1063,10 @@ class AuthService {
   // ============================================================
   // REQUEST PASSWORD RESET
   // ============================================================
+
   async requestPasswordReset(email) {
     const normalizedEmail = email.trim().toLowerCase();
+
     const genericResponse = {
       message:
         "If an account with that email exists, a password reset link has been sent.",
@@ -684,7 +1096,6 @@ class AuthService {
         resetToken,
       );
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error("Failed to send password reset email:", error);
     }
 
@@ -694,6 +1105,7 @@ class AuthService {
   // ============================================================
   // RESET PASSWORD
   // ============================================================
+
   async resetPassword(token, newPassword) {
     const user = await prisma.user.findFirst({
       where: {
@@ -722,7 +1134,10 @@ class AuthService {
     });
 
     await prisma.userSession.updateMany({
-      where: { user_id: user.id, is_active: true },
+      where: {
+        user_id: user.id,
+        is_active: true,
+      },
       data: {
         is_active: false,
         logged_out_at: new Date(),
@@ -736,8 +1151,10 @@ class AuthService {
   // ============================================================
   // GET USER BY ID
   // ============================================================
+
   async getUserById(userId) {
     const cachedUser = await redisHelpers.get(`user:${userId}`);
+
     if (cachedUser) return cachedUser;
 
     const user = await prisma.user.findUnique({
@@ -748,8 +1165,13 @@ class AuthService {
           take: 5,
           orderBy: { created_at: "desc" },
         },
-        bookings: { take: 5, orderBy: { created_at: "desc" } },
-        id_documents: { orderBy: { created_at: "desc" } },
+        bookings: {
+          take: 5,
+          orderBy: { created_at: "desc" },
+        },
+        id_documents: {
+          orderBy: { created_at: "desc" },
+        },
       },
     });
 
@@ -758,22 +1180,27 @@ class AuthService {
     }
 
     const { password_hash, ...userWithoutPassword } = user;
-    await redisHelpers.set(`user:${userId}`, userWithoutPassword, 3600);
+
+    await redisHelpers.set(
+      `user:${userId}`,
+      userWithoutPassword,
+      3600,
+    );
 
     return userWithoutPassword;
   }
 
   // ============================================================
   // UPDATE USER
-  //
-  // Service-side whitelist as defense-in-depth. If someone later adds
-  // a new route that calls updateUser(req.user.id, req.body), this
-  // still refuses to accept role/status/email/password_hash.
   // ============================================================
+
   async updateUser(userId, updateData) {
     const safeData = {};
+
     for (const key of SELF_EDITABLE_USER_FIELDS) {
-      if (updateData[key] !== undefined) safeData[key] = updateData[key];
+      if (updateData[key] !== undefined) {
+        safeData[key] = updateData[key];
+      }
     }
 
     if (Object.keys(safeData).length === 0) {
@@ -792,12 +1219,14 @@ class AuthService {
     await redisHelpers.del(`user:${userId}`);
 
     const { password_hash, ...userWithoutPassword } = user;
+
     return userWithoutPassword;
   }
 
   // ============================================================
-  // CHANGE PASSWORD
+  // CHANGE PASSWORD (LEGACY)
   // ============================================================
+
   async changePassword(userId, currentPassword, newPassword) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -829,7 +1258,10 @@ class AuthService {
     });
 
     await prisma.userSession.updateMany({
-      where: { user_id: userId, is_active: true },
+      where: {
+        user_id: userId,
+        is_active: true,
+      },
       data: {
         is_active: false,
         logged_out_at: new Date(),
@@ -845,8 +1277,10 @@ class AuthService {
   // ============================================================
   // RESEND EMAIL VERIFICATION
   // ============================================================
+
   async resendVerificationEmail(email) {
     const normalizedEmail = email.trim().toLowerCase();
+
     const genericResponse = {
       message:
         "If an account with that email exists and needs verification, an email has been sent.",
@@ -867,7 +1301,10 @@ class AuthService {
 
     if (!hasValidToken) {
       tokenToSend = generateToken();
-      const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+      const verificationExpires = new Date(
+        Date.now() + 24 * 60 * 60 * 1000,
+      );
 
       await prisma.user.update({
         where: { id: user.id },
@@ -885,7 +1322,6 @@ class AuthService {
         tokenToSend,
       );
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error("Failed to send verification email:", error.message);
     }
 
@@ -895,6 +1331,7 @@ class AuthService {
   // ============================================================
   // CHECK VERIFICATION STATUS
   // ============================================================
+
   async checkVerificationStatus(email) {
     const normalizedEmail = email.trim().toLowerCase();
 
@@ -928,8 +1365,11 @@ class AuthService {
   // ============================================================
   // GENERATE NEW VERIFICATION TOKEN
   // ============================================================
+
   async generateNewVerificationToken(userId) {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
 
     if (!user) {
       throw new AppError(ErrorCodes.USER_NOT_FOUND, "User not found", 404);
@@ -944,7 +1384,10 @@ class AuthService {
     }
 
     const verificationToken = generateToken();
-    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    const verificationExpires = new Date(
+      Date.now() + 24 * 60 * 60 * 1000,
+    );
 
     await prisma.user.update({
       where: { id: userId },
@@ -975,12 +1418,9 @@ class AuthService {
   }
 
   // ============================================================
-  // ADD ID IMAGE (NEW — replaces the controller's inline Prisma call)
-  //
-  // Stores a URL into `User.id_images` array (kept for the legacy
-  // frontend flow). Newer code should create UserIdDocument rows
-  // instead — see createHostProfile comment for rationale.
+  // ADD ID IMAGE
   // ============================================================
+
   async addIdImage(userId, url) {
     if (!url || typeof url !== "string") {
       throw new AppError(
@@ -992,15 +1432,16 @@ class AuthService {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true },
+      select: {
+        id: true,
+        role: true,
+      },
     });
 
     if (!user) {
       throw new AppError(ErrorCodes.USER_NOT_FOUND, "User not found", 404);
     }
 
-    // Only hosts upload ID documents. (Adjust if you want users to
-    // pre-upload before becoming hosts.)
     if (user.role !== "host") {
       throw new AppError(
         ErrorCodes.FORBIDDEN,
@@ -1024,14 +1465,18 @@ class AuthService {
     });
 
     await redisHelpers.del(`user:${userId}`);
+
     return updated;
   }
 
   // ============================================================
   // CREATE HOST PROFILE
   // ============================================================
+
   async createHostProfile(userId, hostData) {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
 
     if (!user) {
       throw new AppError(ErrorCodes.USER_NOT_FOUND, "User not found", 404);
@@ -1045,8 +1490,6 @@ class AuthService {
       );
     }
 
-    // Strip client-supplied verification fields — same fix as your
-    // original file, kept intact.
     const {
       idImages,
       verified,
@@ -1068,6 +1511,7 @@ class AuthService {
       data: {
         role: "host",
         status: USER_STATUS.PENDING,
+
         host_details: {
           rating: 0,
           totalListings: 0,
@@ -1080,20 +1524,28 @@ class AuthService {
           payment_verified_at: null,
           payment_rejected: false,
           payment_rejection_reason: null,
-          notificationSent: { oneWeek: false, twoDays: false },
+          notificationSent: {
+            oneWeek: false,
+            twoDays: false,
+          },
           ...safeHostData,
         },
       },
     });
 
     try {
-      await emailService.sendHostVerificationEmail(user.email, user.name);
+      await emailService.sendHostVerificationEmail(
+        user.email,
+        user.name,
+      );
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error("Failed to send host verification email:", error);
     }
 
+    await redisHelpers.del(`user:${userId}`);
+
     const { password_hash, ...userWithoutPassword } = updatedUser;
+
     return userWithoutPassword;
   }
 }
