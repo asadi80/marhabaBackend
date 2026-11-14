@@ -12,58 +12,105 @@ datasource db {
 // USER
 // ============================================================
 
+
 model User {
-  id               String   @id @default(uuid()) @db.Uuid
-  name             String   @db.VarChar(255)
-  email            String   @unique @db.VarChar(255)
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String   @db.VarChar(255)
+  email         String   @unique @db.VarChar(255)
 
-  // Google identity
-  google_id        String?  @unique @db.VarChar(255)
-  profile_image    String?  @db.Text
+  // ==========================================================
+  // GOOGLE IDENTITY
+  // ==========================================================
 
-  phone_number     String?  @db.VarChar(50)
+  // Google OAuth subject (sub), verified by the backend
+  google_id     String?  @unique @db.VarChar(255)
+  profile_image String?  @db.Text
+  email_verified_at DateTime? @db.Timestamp
 
-  // traveler | host
-  account_type     String   @default("traveler") @db.VarChar(50)
+  phone_number  String?  @db.VarChar(50)
 
-  // user | admin | super_admin
-  role             String   @default("user") @db.VarChar(50)
+  // ==========================================================
+  // ACCOUNT CLASSIFICATION
+  // ==========================================================
+
+  // traveler | host | admin | super_admin
+  account_type  String   @default("traveler") @db.VarChar(50)
+
+  // user | admin
+  role          String   @default("user") @db.VarChar(50)
 
   // Traveler: active | pending | suspended
   // Host: pending | confirmed | suspended
-  status           String   @default("active") @db.VarChar(50)
+  // Admin / Super Admin: confirmed
+  status        String   @default("active") @db.VarChar(50)
 
-  status_reason    String?  @db.Text
-  host_expiry_date DateTime?
+  status_reason String?  @db.Text
 
-  // Soft deletion
-  deleted_at       DateTime? @db.Timestamp
+  // ==========================================================
+  // HOST ACCOUNT
+  // ==========================================================
 
-  last_active      DateTime @default(now()) @db.Timestamp
-  created_at       DateTime @default(now()) @db.Timestamp
-  updated_at       DateTime @default(now()) @updatedAt @db.Timestamp
+  host_expiry_date DateTime? @db.Timestamp
 
-  host_details     Json     @default("{\"rating\":0,\"totalListings\":0,\"verified\":false,\"id_verified\":false,\"id_verified_at\":null,\"id_rejected\":false,\"id_rejection_reason\":null,\"payment_verified\":false,\"payment_verified_at\":null,\"payment_rejected\":false,\"payment_rejection_reason\":null,\"notificationSent\":{\"oneWeek\":false,\"twoDays\":false}}") @db.JsonB
-  user_details     Json     @default("{\"preferences\":{},\"bookings\":[]}") @db.JsonB
+  // ==========================================================
+  // SECURITY
+  // ==========================================================
 
-  sessions         UserSession[]
-  events           UserEvent[]
-  listings         Listing[]
-  bookings         Booking[]
+  // Increment this to invalidate existing access tokens.
+  // The backend must check this value against the token claim.
+  auth_version  Int      @default(0)
 
-  blocked_users    HostBlockedUser[] @relation("host_blocked")
-  blocked_by       HostBlockedUser[] @relation("user_blocked")
+  // Most recent successful Google authentication
+  last_login_at DateTime? @db.Timestamp
 
-  id_documents     UserIdDocument[] @relation("user_id_documents")
+  // ==========================================================
+  // ACCOUNT LIFECYCLE
+  // ==========================================================
+
+  // Soft deletion; never physically delete users through normal account flows.
+  deleted_at    DateTime? @db.Timestamp
+
+  last_active   DateTime  @default(now()) @db.Timestamp
+  created_at    DateTime  @default(now()) @db.Timestamp
+  updated_at    DateTime  @default(now()) @updatedAt @db.Timestamp
+
+  // ==========================================================
+  // ACCOUNT DETAILS
+  // ==========================================================
+
+  host_details Json @default("{\"rating\":0,\"totalListings\":0,\"verified\":false,\"id_verified\":false,\"id_verified_at\":null,\"id_rejected\":false,\"id_rejection_reason\":null,\"payment_verified\":false,\"payment_verified_at\":null,\"payment_rejected\":false,\"payment_rejection_reason\":null,\"notificationSent\":{\"oneWeek\":false,\"twoDays\":false}}") @db.JsonB
+
+  user_details Json @default("{\"preferences\":{},\"bookings\":[]}") @db.JsonB
+
+  // ==========================================================
+  // RELATIONS
+  // ==========================================================
+
+  sessions UserSession[]
+  events   UserEvent[]
+
+  listings Listing[]
+  bookings Booking[]
+
+  blocked_users HostBlockedUser[] @relation("host_blocked")
+  blocked_by    HostBlockedUser[] @relation("user_blocked")
+
+  id_documents          UserIdDocument[] @relation("user_id_documents")
   reviewed_id_documents UserIdDocument[] @relation("id_document_reviewer")
 
   host_subscription_payments HostSubscriptionPayment[]
 
+  // ==========================================================
+  // INDEXES
+  // ==========================================================
+
   @@index([role])
-  @@index([status])
   @@index([account_type])
+  @@index([status])
   @@index([deleted_at])
+  @@index([created_at])
 }
+
 
 // ============================================================
 // USER ID DOCUMENTS
