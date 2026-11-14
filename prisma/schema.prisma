@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,36 +8,36 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-
-
+// ============================================================
+// USER
+// ============================================================
 
 model User {
-  id               String    @id @default(uuid()) @db.Uuid
-  name             String    @db.VarChar(255)
-  email            String    @unique @db.VarChar(255)
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String   @db.VarChar(255)
+  email         String   @unique @db.VarChar(255)
 
-  // Google authentication
-  google_id        String?   @unique @db.VarChar(255)
+  // Google identity
+  google_id     String?  @unique @db.VarChar(255)
+  profile_image String?  @db.Text
 
-  // Nullable for Google-only accounts
-  password_hash    String?   @db.VarChar(255)
-  phone_number     String?   @db.VarChar(50)
+  phone_number  String?  @db.VarChar(50)
 
-  // Signup choice: traveler or host
-  account_type     String    @default("traveler") @db.VarChar(50)
+  // traveler | host
+  account_type  String   @default("traveler") @db.VarChar(50)
 
-  // Authorization role: user, host, admin, super_admin
-  role             String    @default("user") @db.VarChar(50)
-  status           String    @default("pending") @db.VarChar(50)
-  status_reason    String?   @db.Text
+  // user | admin | super_admin
+  role          String   @default("user") @db.VarChar(50)
+
+  // Traveler: active | pending | suspended
+  // Host: pending | confirmed | suspended
+  status        String   @default("active") @db.VarChar(50)
+
+  status_reason    String?  @db.Text
   host_expiry_date DateTime?
 
-  email_verified             Boolean   @default(false)
-  email_verification_token   String?   @db.VarChar(255)
-  email_verification_expires DateTime?
-
-  reset_password_token   String?   @db.VarChar(255)
-  reset_password_expires DateTime?
+  // Soft deletion
+  deleted_at DateTime? @db.Timestamp
 
   last_active DateTime @default(now()) @db.Timestamp
   created_at  DateTime @default(now()) @db.Timestamp
@@ -59,13 +60,15 @@ model User {
 
   host_subscription_payments HostSubscriptionPayment[]
 
-  @@index([email])
   @@index([role])
   @@index([status])
-  @@index([email_verified])
   @@index([account_type])
+  @@index([deleted_at])
 }
 
+// ============================================================
+// USER ID DOCUMENTS
+// ============================================================
 
 model UserIdDocument {
   id String @id @default(uuid()) @db.Uuid
@@ -90,8 +93,19 @@ model UserIdDocument {
   created_at DateTime @default(now()) @db.Timestamp
   updated_at DateTime @default(now()) @updatedAt @db.Timestamp
 
-  user     User  @relation("user_id_documents", fields: [user_id], references: [id], onDelete: Cascade)
-  reviewer User? @relation("id_document_reviewer", fields: [reviewed_by], references: [id], onDelete: SetNull)
+  user User @relation(
+    "user_id_documents",
+    fields: [user_id],
+    references: [id],
+    onDelete: Restrict
+  )
+
+  reviewer User? @relation(
+    "id_document_reviewer",
+    fields: [reviewed_by],
+    references: [id],
+    onDelete: SetNull
+  )
 
   @@index([user_id])
   @@index([status])
@@ -100,23 +114,40 @@ model UserIdDocument {
   @@index([reviewed_by])
 }
 
+// ============================================================
+// USER SESSIONS
+// ============================================================
+
 model UserSession {
-  id            String    @id @default(uuid()) @db.Uuid
-  user_id       String    @db.Uuid
-  device        String?   @db.VarChar(255)
-  browser       String?   @db.VarChar(255)
-  os            String?   @db.VarChar(255)
-  ip_address    String?   @db.Text
-  user_agent    String?   @db.Text
-  logged_in_at  DateTime  @default(now()) @db.Timestamp
-  logged_out_at DateTime? @db.Timestamp
-  is_active     Boolean   @default(true)
-  refresh_token_hash String?   @db.Text
+  id                 String    @id @default(uuid()) @db.Uuid
+  user_id            String    @db.Uuid
 
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  device             String?   @db.VarChar(255)
+  browser            String?   @db.VarChar(255)
+  os                 String?   @db.VarChar(255)
+  ip_address         String?   @db.Text
+  user_agent         String?   @db.Text
 
-  @@index([user_id])
+  logged_in_at       DateTime  @default(now()) @db.Timestamp
+  logged_out_at      DateTime? @db.Timestamp
+
+  is_active          Boolean   @default(true)
+  refresh_token_hash String?   @unique @db.Text
+  expires_at         DateTime? @db.Timestamp
+
+  user User @relation(
+    fields: [user_id],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  @@index([user_id, is_active])
+  @@index([expires_at])
 }
+
+// ============================================================
+// USER EVENTS
+// ============================================================
 
 model UserEvent {
   id         String   @id @default(uuid()) @db.Uuid
@@ -125,52 +156,79 @@ model UserEvent {
   metadata   Json?    @db.JsonB
   created_at DateTime @default(now()) @db.Timestamp
 
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user User @relation(
+    fields: [user_id],
+    references: [id],
+    onDelete: Restrict
+  )
 
   @@index([user_id])
+  @@index([event_type])
+  @@index([created_at])
 }
+
+// ============================================================
+// LISTINGS
+// ============================================================
 
 model Listing {
   id                  String   @id @default(uuid()) @db.Uuid
   title               String   @db.VarChar(255)
-  timezone String @default("Africa/Tripoli") @db.VarChar(100)
+  timezone            String   @default("Africa/Tripoli") @db.VarChar(100)
   description         String   @db.Text
   price               Decimal  @db.Decimal(10, 2)
-  location            String   @db.VarChar(255)
+  location             String   @db.VarChar(255)
 
-  latitude            Decimal? @db.Decimal(10, 8)
-  longitude           Decimal? @db.Decimal(11, 8)
+  latitude             Decimal? @db.Decimal(10, 8)
+  longitude            Decimal? @db.Decimal(11, 8)
 
-  images              String[] @default([])
-  category            String   @default("city") @db.VarChar(50)
-  amenities           String[] @default([])
-  host_id             String   @db.Uuid
-  rules               String[] @default([])
+  images               String[] @default([])
+  category             String   @default("city") @db.VarChar(50)
+  amenities            String[] @default([])
+  host_id              String   @db.Uuid
+  rules                String[] @default([])
 
   cancellation_policy Json @default("{\"type\":\"flexible\",\"description\":\"\",\"rules\":[]}") @db.JsonB
 
-  status              String   @default("active") @db.VarChar(20)
-  is_active           Boolean  @default(true)
-  blocked_dates       Json     @default("[]") @db.JsonB
-  view_count          Int      @default(0)
+  status               String   @default("active") @db.VarChar(20)
+  is_active            Boolean  @default(true)
+
+  // Soft deletion
+  deleted_at           DateTime? @db.Timestamp
+
+  blocked_dates        Json     @default("[]") @db.JsonB
+  view_count           Int      @default(0)
+
   created_at           DateTime @default(now()) @db.Timestamp
   updated_at           DateTime @default(now()) @updatedAt @db.Timestamp
 
-  host User @relation(fields: [host_id], references: [id], onDelete: Cascade)
+  host User @relation(
+    fields: [host_id],
+    references: [id],
+    onDelete: Restrict
+  )
 
   bookings Booking[]
 
   @@index([host_id])
   @@index([status])
   @@index([category])
+  @@index([deleted_at])
+  @@index([is_active])
 }
+
+// ============================================================
+// BOOKINGS
+// ============================================================
 
 model Booking {
   id          String   @id @default(uuid()) @db.Uuid
   listing_id  String   @db.Uuid
   user_id     String   @db.Uuid
+
   check_in    DateTime @db.Timestamp
   check_out   DateTime @db.Timestamp
+
   total_price Decimal  @db.Decimal(10, 2)
   guests      Int      @default(1)
 
@@ -180,11 +238,21 @@ model Booking {
   no_show Boolean @default(false)
 
   status     String   @default("pending") @db.VarChar(20)
+
   created_at DateTime @default(now()) @db.Timestamp
   updated_at DateTime @default(now()) @updatedAt @db.Timestamp
 
-  listing Listing @relation(fields: [listing_id], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  listing Listing @relation(
+    fields: [listing_id],
+    references: [id],
+    onDelete: Restrict
+  )
+
+  user User @relation(
+    fields: [user_id],
+    references: [id],
+    onDelete: Restrict
+  )
 
   blocked_entries HostBlockedUser[]
 
@@ -194,18 +262,38 @@ model Booking {
   @@index([status])
 }
 
+// ============================================================
+// HOST BLOCKED USERS
+// ============================================================
+
 model HostBlockedUser {
   id         String   @id @default(uuid()) @db.Uuid
   host_id    String   @db.Uuid
   user_id    String   @db.Uuid
   reason     String   @default("Blocked by host") @db.VarChar(50)
   booking_id String?  @db.Uuid
+
   created_at DateTime @default(now()) @db.Timestamp
 
-  host User @relation("host_blocked", fields: [host_id], references: [id], onDelete: Cascade)
-  user User @relation("user_blocked", fields: [user_id], references: [id], onDelete: Cascade)
+  host User @relation(
+    "host_blocked",
+    fields: [host_id],
+    references: [id],
+    onDelete: Restrict
+  )
 
-  booking Booking? @relation(fields: [booking_id], references: [id])
+  user User @relation(
+    "user_blocked",
+    fields: [user_id],
+    references: [id],
+    onDelete: Restrict
+  )
+
+  booking Booking? @relation(
+    fields: [booking_id],
+    references: [id],
+    onDelete: SetNull
+  )
 
   @@unique([host_id, user_id])
   @@index([host_id])
@@ -213,6 +301,10 @@ model HostBlockedUser {
 
   @@map("host_blocked_users")
 }
+
+// ============================================================
+// HOST SUBSCRIPTION PAYMENTS
+// ============================================================
 
 model HostSubscriptionPayment {
   id      String @id @default(uuid()) @db.Uuid
@@ -235,7 +327,11 @@ model HostSubscriptionPayment {
   created_at DateTime @default(now()) @db.Timestamp
   updated_at DateTime @default(now()) @updatedAt @db.Timestamp
 
-  host User @relation(fields: [host_id], references: [id], onDelete: Cascade)
+  host User @relation(
+    fields: [host_id],
+    references: [id],
+    onDelete: Restrict
+  )
 
   @@index([host_id])
   @@index([host_id, status])
