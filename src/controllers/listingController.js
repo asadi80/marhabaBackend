@@ -72,7 +72,7 @@ const createListing = asyncHandler(async (req, res) => {
     timezone,
   } = req.body;
 
-   // DEBUG: Values received by the controller
+  // DEBUG: Values received by the controller
   console.log("\n========== CREATE LISTING DEBUG ==========");
   console.log("🌍 Timezone received:", timezone);
   console.log("🖼️ Images received:", JSON.stringify(images, null, 2));
@@ -443,7 +443,7 @@ const getListing = asyncHandler(async (req, res) => {
           // Confirmed + checked-in bookings block dates.
           // (Pending bookings are intentionally excluded — they don't
           //  hold the calendar until approved.)
-          status: { in: ["pending","confirmed", "checked_in"] },
+          status: { in: ["pending", "confirmed", "checked_in"] },
         },
         select: {
           check_in: true,
@@ -1519,7 +1519,7 @@ const getNearbyListings = asyncHandler(async (req, res) => {
       AND l.latitude IS NOT NULL
       AND l.longitude IS NOT NULL
       AND u.status = 'confirmed'
-      AND u.role = 'host'
+      AND u.account_type = 'host'
     `;
 
     const queryParams = [];
@@ -1599,6 +1599,13 @@ const getNearbyListings = asyncHandler(async (req, res) => {
     // ========================================================
 
     const result = await prisma.$queryRawUnsafe(bboxQuery, ...queryParams);
+    console.log("📍 NEARBY LISTINGS DEBUG", {
+      userLocation: { lat, lng },
+      radius: safeRadius,
+      queryParams,
+      databaseResults: result.length,
+      firstListing: result[0] || null,
+    });
 
     // ========================================================
     // CALCULATE EXACT DISTANCE
@@ -1664,6 +1671,16 @@ const getNearbyListings = asyncHandler(async (req, res) => {
 
       distance: listing.distance_km,
     }));
+
+    console.log("📍 FORMATTED NEARBY LISTINGS", {
+      count: formattedListings.length,
+      listings: formattedListings.map((listing) => ({
+        id: listing.id,
+        title: listing.title,
+        coordinates: listing.coordinates,
+        distance: listing.distance,
+      })),
+    });
 
     // ========================================================
     // RESPONSE
