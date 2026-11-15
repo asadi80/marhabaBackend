@@ -164,7 +164,7 @@ const updateDocumentVerification = async (tx, userId, hostDetails) => {
 // DASHBOARD STATISTICS
 // ============================================================
 
-// GET /api/v1/admin/stats
+// GET /api/v1/dashboard/stats
 const getStats = asyncHandler(async (req, res) => {
   const cachedStats = await redisHelpers.get("admin:stats");
 
@@ -185,34 +185,38 @@ const getStats = asyncHandler(async (req, res) => {
     pendingHosts,
     totalRevenue,
   ] = await Promise.all([
+    // Regular travelers
     prisma.user.count({
       where: {
+        role: "user",
         account_type: "traveler",
-        role: "user",
         deleted_at: null,
       },
     }),
 
+    // Hosts
     prisma.user.count({
       where: {
+        role: "user",
         account_type: "host",
-        role: "user",
         deleted_at: null,
       },
     }),
 
+    // Regular admins
     prisma.user.count({
       where: {
-        account_type: "admin",
         role: "admin",
+        account_type: "admin",
         deleted_at: null,
       },
     }),
 
+    // Super admins
     prisma.user.count({
       where: {
+        role: "admin",
         account_type: "super_admin",
-        role: "super_admin",
         deleted_at: null,
       },
     }),
@@ -225,15 +229,17 @@ const getStats = asyncHandler(async (req, res) => {
 
     prisma.booking.count(),
 
+    // Pending hosts
     prisma.user.count({
       where: {
-        account_type: "host",
         role: "user",
+        account_type: "host",
         status: "pending",
         deleted_at: null,
       },
     }),
 
+    // Confirmed booking revenue
     prisma.booking.aggregate({
       _sum: {
         total_price: true,
@@ -267,7 +273,7 @@ const getStats = asyncHandler(async (req, res) => {
 // USERS
 // ============================================================
 
-// GET /api/v1/admin/users
+// GET /api/v1/dashboard/users
 const getUsers = asyncHandler(async (req, res) => {
   const {
     role,
@@ -284,23 +290,58 @@ const getUsers = asyncHandler(async (req, res) => {
     deleted_at: null,
   };
 
-  const accountFilter = normalizeAccountFilter(account_type || role);
+  // Account filtering
+  // account_type takes priority over role.
+  const requestedType = String(account_type || role || "")
+    .trim()
+    .toLowerCase();
 
-  if ((account_type || role) && !accountFilter) {
-    return res.status(400).json({
-      success: false,
-      message: "Invalid account type filter",
-    });
-  }
+  const accountFilters = {
+    traveler: {
+      role: "user",
+      account_type: "traveler",
+    },
 
-  if (accountFilter) {
+    user: {
+      role: "user",
+      account_type: "traveler",
+    },
+
+    host: {
+      role: "user",
+      account_type: "host",
+    },
+
+    admin: {
+      role: "admin",
+      account_type: "admin",
+    },
+
+    super_admin: {
+      role: "admin",
+      account_type: "super_admin",
+    },
+  };
+
+  if (requestedType) {
+    const accountFilter = accountFilters[requestedType];
+
+    if (!accountFilter) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid account type filter",
+      });
+    }
+
     Object.assign(filter, accountFilter);
   }
 
+  // Status filtering
   if (status) {
     filter.status = String(status).trim();
   }
 
+  // Search filtering
   if (search && String(search).trim()) {
     const searchTerm = String(search).trim();
 
@@ -326,6 +367,7 @@ const getUsers = asyncHandler(async (req, res) => {
     ];
   }
 
+  // Fetch users and total matching records
   const [users, total] = await Promise.all([
     prisma.user.findMany({
       where: filter,
@@ -363,6 +405,7 @@ const getUsers = asyncHandler(async (req, res) => {
             reviewed_by: true,
             created_at: true,
           },
+
           orderBy: {
             created_at: "desc",
           },
@@ -390,6 +433,7 @@ const getUsers = asyncHandler(async (req, res) => {
     }),
   ]);
 
+  // Overall account counts (independent of the selected tab)
   const [
     usersCount,
     hostsCount,
@@ -398,32 +442,32 @@ const getUsers = asyncHandler(async (req, res) => {
   ] = await Promise.all([
     prisma.user.count({
       where: {
+        role: "user",
         account_type: "traveler",
-        role: "user",
         deleted_at: null,
       },
     }),
 
     prisma.user.count({
       where: {
+        role: "user",
         account_type: "host",
-        role: "user",
         deleted_at: null,
       },
     }),
 
     prisma.user.count({
       where: {
-        account_type: "admin",
         role: "admin",
+        account_type: "admin",
         deleted_at: null,
       },
     }),
 
     prisma.user.count({
       where: {
+        role: "admin",
         account_type: "super_admin",
-        role: "super_admin",
         deleted_at: null,
       },
     }),
@@ -431,6 +475,7 @@ const getUsers = asyncHandler(async (req, res) => {
 
   return res.status(200).json({
     success: true,
+
     users,
 
     usersByRole: {
