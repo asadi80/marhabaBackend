@@ -1,4 +1,3 @@
-
 const authService = require("../services/authService");
 const { prisma } = require("../config/database");
 
@@ -134,8 +133,10 @@ const protectWithAuthType = (expectedAuthType) => {
       // not merely against the token.
       if (expectedAuthType === "admin") {
         const isValidAdmin =
-          ["admin", "super_admin"].includes(user.role) &&
-          user.account_type === user.role &&
+          user &&
+          !user.deleted_at &&
+          user.role === "admin" &&
+          ["admin", "super_admin"].includes(user.account_type) &&
           user.status === "confirmed";
 
         if (!isValidAdmin) {
@@ -231,10 +232,7 @@ const isVerified = (req, res, next) => {
 // ============================================================
 
 const isHost = (req, res, next) => {
-  if (
-    req.user?.account_type !== "host" ||
-    req.user?.role !== "user"
-  ) {
+  if (req.user?.account_type !== "host" || req.user?.role !== "user") {
     return res.status(403).json({
       success: false,
       message: "Host account required for this action",
