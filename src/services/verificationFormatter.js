@@ -14,30 +14,49 @@ function buildVerificationStatus(user) {
     : [];
   const hostDetails = user.host_details || {};
 
+
   // ---------- ID BLOCK ----------
   const latestDoc = idDocuments[0] || null;
+
   const latestApprovedDoc = idDocuments.find(
     (d) => d.status === "approved" || d.status === "verified",
   );
-  const rejectedDoc = idDocuments.find((d) => d.status === "rejected");
+
+  const rejectedDoc = idDocuments.find(
+    (d) => d.status === "rejected",
+  );
 
   const idBlock = {
     uploaded: idDocuments.length > 0,
+
     documents: idDocuments.map((d) => ({
       id: d.id,
+      user_id: d.user_id,
+
+      document_type: d.document_type,
+      side: d.side,
+
+      file_url: d.file_url,
+      file_name: d.file_name,
+      file_type: d.file_type,
+
       status: d.status,
       rejection_reason: d.rejection_reason || null,
       reviewed_at: d.reviewed_at || null,
+
       created_at: d.created_at || null,
+      updated_at: d.updated_at || null,
     })),
+
     status: latestDoc?.status || "pending",
-    // "Latest approval wins" — a newly pending upload after approval
-    // should NOT flip verified back to false.
+
     verified: Boolean(latestApprovedDoc),
     verified_at: latestApprovedDoc?.reviewed_at || null,
+
     rejected: Boolean(rejectedDoc),
     rejection_reason: rejectedDoc?.rejection_reason || null,
   };
+
 
   // ---------- PAYMENTS ----------
   const allPayments = payments.map((p) => ({

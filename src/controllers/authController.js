@@ -622,6 +622,7 @@ const getHostVerificationStatus = asyncHandler(async (req, res) => {
         },
       });
     }
+    
 
     const verificationStatus = buildVerificationStatus(user);
 
